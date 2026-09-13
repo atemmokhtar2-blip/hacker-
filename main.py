@@ -11,6 +11,9 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 app = FastAPI()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
+# جلب رابط الدومين الحقيقي من Railway تلقائياً، أو استخدام قيمة افتراضية
+RAILWAY_STATIC_URL = os.getenv("RAILWAY_STATIC_URL", "127.0.0.1:8080")
+
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
@@ -121,7 +124,11 @@ async def cmd_start(message: types.Message):
 async def generate_link(message: types.Message):
     user_id = message.from_user.id
     unique_token = str(uuid.uuid4())[:8]
-    trap_url = f"https://your-railway-app.up.railway.app/t/{unique_token}"
+    
+    # تحديد النطاق بشكل ديناميكي صحيح
+    base_url = f"https://{RAILWAY_STATIC_URL}" if "http" not in RAILWAY_STATIC_URL else RAILWAY_STATIC_URL
+    trap_url = f"{base_url}/t/{unique_token}"
+    
     USERS_DB[user_id]["links_generated"] += 1
     
     await message.answer(
@@ -143,3 +150,9 @@ async def run_telegram_polling():
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(run_telegram_polling())
+
+if __name__ == "__main__":
+    import uvicorn
+    # قراءة الـ PORT المخصص من Railway لتجنب خطأ انقطاع الاتصال (غير موجود)
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
